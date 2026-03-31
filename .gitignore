@@ -7,6 +7,9 @@ out/
 dist/
 code.js
 
+pnpm-lock.yaml
+package-lock.json
+
 # Editor
 .idea/
 .vscode/
