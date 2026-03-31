@@ -2,6 +2,8 @@
 
 Figma 插件，用于将 Figma 设计元素转换为微信小程序（WeChat Mini Program）样式代码。
 
+**Figma 社区插件地址**：[https://www.figma.com/community/plugin/1620454631553391223](https://www.figma.com/community/plugin/1620454631553391223)
+
 ## 功能特性
 
 - **单位转换**：将 Figma 像素（px）转换为微信小程序响应式像素（rpx）
@@ -9,6 +11,14 @@ Figma 插件，用于将 Figma 设计元素转换为微信小程序（WeChat Min
 - **样式提取**：自动提取 Figma 节点的样式属性
 - **布局转换**：将 Figma Auto Layout 属性转换为 CSS Flexbox
 - **智能简写**：自动生成优化的 CSS 简写属性
+
+### 截图展示
+
+#### 设置界面 (UI)
+![设置界面截图](docs/ui.png)
+
+#### 代码生成效果 (Code Generation)
+![代码生成截图](docs/gencode.png)
 
 ### 支持的样式属性
 - **布局属性**：宽度、高度、外边距、内边距
