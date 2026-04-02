@@ -16,6 +16,25 @@ function pxToRpx(value: number, conversionRate: number): number {
 function generateWechatMiniProgramCode(node: SceneNode, conversionRate: number): string {
   const styles: string[] = [];
 
+  // 检查是否是文本节点
+  const isTextNode = 'characters' in node && typeof (node as any).characters === 'string';
+
+  // 检查父节点是否有可见填充色（用于容器背景）
+  let parentBackgroundColor = '';
+  if (isTextNode && (node as any).parent) {
+    const parent = (node as any).parent;
+    if ('fills' in parent && Array.isArray(parent.fills) && parent.fills.length > 0) {
+      const parentFill = parent.fills[0];
+      // 检查父节点填充是否可见且为SOLID类型
+      if (parentFill.visible !== false && parentFill.type === 'SOLID' && parentFill.color) {
+        // 检查颜色是否可见（透明度 > 0.01）
+        if (isColorVisible(parentFill.color)) {
+          parentBackgroundColor = colorToCss(parentFill.color);
+        }
+      }
+    }
+  }
+
   // 处理宽度和高度
   if ('width' in node) {
     const widthRpx = pxToRpx(node.width, conversionRate);
@@ -165,53 +184,128 @@ function generateWechatMiniProgramCode(node: SceneNode, conversionRate: number):
   }
 
   // 处理填充色
+  // 首先，如果是文本节点且有父节点背景色，添加容器背景
+  if (isTextNode && parentBackgroundColor) {
+    styles.push(`background-color: ${parentBackgroundColor}`);
+  }
+
+  // 然后处理节点本身的填充色
   if ('fills' in node && Array.isArray(node.fills) && node.fills.length > 0) {
-    const fill = node.fills[0];
-    if (fill.type === 'SOLID') {
-      const color = rgbToHex(fill.color);
-      styles.push(`background-color: ${color}`);
+    // 查找第一个可见的填充
+    let visibleFill = null;
+    for (const fill of node.fills) {
+      if (fill.visible !== false) {
+        visibleFill = fill;
+        break;
+      }
+    }
+
+    if (visibleFill) {
+      // 处理SOLID类型填充
+      if (visibleFill.type === 'SOLID' && visibleFill.color) {
+        // 检查颜色是否可见（透明度 > 0.01）
+        if (isColorVisible(visibleFill.color)) {
+          const color = colorToCss(visibleFill.color);
+          // 如果是文本节点，生成文本颜色；否则生成背景颜色
+          if (isTextNode) {
+            styles.push(`color: ${color}`);
+          } else {
+            styles.push(`background-color: ${color}`);
+          }
+        }
+      }
+      // 处理渐变类型填充
+      else if (
+        visibleFill.type === 'GRADIENT_LINEAR' ||
+        visibleFill.type === 'GRADIENT_RADIAL' ||
+        visibleFill.type === 'GRADIENT_ANGULAR' ||
+        visibleFill.type === 'GRADIENT_DIAMOND'
+      ) {
+        const gradientCss = gradientToCss(visibleFill);
+        if (gradientCss) {
+          // 对于文本节点，如果填充是渐变，取第一个色标的颜色作为文字颜色
+          if (isTextNode && visibleFill.gradientStops && visibleFill.gradientStops.length > 0) {
+            const firstStop = visibleFill.gradientStops[0];
+            if (firstStop.color && isColorVisible(firstStop.color)) {
+              const color = colorToCss(firstStop.color);
+              styles.push(`color: ${color}`);
+            }
+          } else {
+            // 非文本节点，生成渐变背景
+            styles.push(`background-image: ${gradientCss}`);
+          }
+        }
+      }
     }
   }
 
   // 处理边框
+  // 检查是否有边框（strokeWeight > 0，且不是figma.mixed）
+  const hasBorderWeight = 'strokeWeight' in node &&
+    node.strokeWeight !== figma.mixed &&
+    typeof node.strokeWeight === 'number' &&
+    node.strokeWeight > 0;
+
+  // 检查是否有可见的边框颜色
+  let hasVisibleStroke = false;
+  let strokeColor = '';
+
   if ('strokes' in node && Array.isArray(node.strokes) && node.strokes.length > 0) {
     const stroke = node.strokes[0];
-    if (stroke.type === 'SOLID') {
-      const color = rgbToHex(stroke.color);
-      styles.push(`border-color: ${color}`);
+    // 检查stroke是否可见且为SOLID类型
+    if (stroke.visible !== false && stroke.type === 'SOLID' && stroke.color) {
+      // 检查颜色是否可见（透明度 > 0）
+      if (isColorVisible(stroke.color)) {
+        hasVisibleStroke = true;
+        strokeColor = colorToCss(stroke.color);
+      }
     }
   }
 
-  if ('strokeWeight' in node && typeof node.strokeWeight === 'number') {
-    const borderWidthRpx = pxToRpx(node.strokeWeight, conversionRate);
+  // 只有当有边框宽度且有可见边框颜色时才生成边框样式
+  if (hasBorderWeight && hasVisibleStroke) {
+    const strokeWeight = node.strokeWeight as number;
+    const borderWidthRpx = pxToRpx(strokeWeight, conversionRate);
     styles.push(`border-width: ${borderWidthRpx}rpx`);
     styles.push(`border-style: solid`);
+    styles.push(`border-color: ${strokeColor}`);
   }
 
   // 处理文本样式
-  const textStyleProperties = [
-    'fontSize', 'fontWeight', 'fontFamily', 'lineHeight',
-    'letterSpacing', 'textAlignHorizontal', 'textAlignVertical',
-    'textDecoration', 'textCase'
-  ];
-
   let hasTextStyle = false;
-  for (const prop of textStyleProperties) {
-    if (prop in node && (node as any)[prop] !== undefined && (node as any)[prop] !== null) {
+
+  if (isTextNode) {
+    // 对于文本节点，检查常见的文本样式属性
+    const textStyleProperties = [
+      'fontSize', 'fontWeight', 'fontFamily', 'fontName',
+      'lineHeight', 'letterSpacing', 'textAlignHorizontal',
+      'textAlignVertical', 'textDecoration', 'textCase'
+    ];
+
+    for (const prop of textStyleProperties) {
+      const value = (node as any)[prop];
+      if (value !== undefined && value !== null && value !== figma.mixed) {
+        hasTextStyle = true;
+        break;
+      }
+    }
+
+    // 如果没有任何标准文本属性，但确实是文本节点，仍然尝试处理
+    // 因为文本节点至少应该有某些样式
+    if (!hasTextStyle && isTextNode) {
       hasTextStyle = true;
-      break;
     }
   }
 
   if (hasTextStyle) {
     // 字体大小
-    if ('fontSize' in node && typeof (node as any).fontSize === 'number' && (node as any).fontSize > 0) {
+    if ('fontSize' in node && (node as any).fontSize !== figma.mixed && typeof (node as any).fontSize === 'number' && (node as any).fontSize > 0) {
       const fontSizeRpx = pxToRpx((node as any).fontSize, conversionRate);
       styles.push(`font-size: ${fontSizeRpx}rpx`);
     }
 
     // 字体粗细
-    if ('fontWeight' in node && typeof (node as any).fontWeight === 'number') {
+    if ('fontWeight' in node && (node as any).fontWeight !== figma.mixed && typeof (node as any).fontWeight === 'number') {
       const weight = (node as any).fontWeight;
       let fontWeight = weight.toString();
       if (weight === 400) fontWeight = 'normal';
@@ -220,12 +314,22 @@ function generateWechatMiniProgramCode(node: SceneNode, conversionRate: number):
     }
 
     // 字体家族
-    if ('fontFamily' in node && typeof (node as any).fontFamily === 'string') {
-      styles.push(`font-family: "${(node as any).fontFamily}"`);
+    let fontFamily = '';
+    if ('fontName' in node && (node as any).fontName !== null && typeof (node as any).fontName === 'object') {
+      const fontName = (node as any).fontName;
+      if (fontName.family && typeof fontName.family === 'string') {
+        fontFamily = fontName.family;
+      }
+    } else if ('fontFamily' in node && typeof (node as any).fontFamily === 'string') {
+      fontFamily = (node as any).fontFamily;
+    }
+
+    if (fontFamily) {
+      styles.push(`font-family: "${fontFamily}"`);
     }
 
     // 行高
-    if ('lineHeight' in node) {
+    if ('lineHeight' in node && (node as any).lineHeight !== figma.mixed) {
       const lineHeight = (node as any).lineHeight;
       if (typeof lineHeight === 'number' && lineHeight > 0) {
         const lineHeightRpx = pxToRpx(lineHeight, conversionRate);
@@ -241,7 +345,7 @@ function generateWechatMiniProgramCode(node: SceneNode, conversionRate: number):
     }
 
     // 字间距
-    if ('letterSpacing' in node) {
+    if ('letterSpacing' in node && (node as any).letterSpacing !== figma.mixed) {
       const letterSpacing = (node as any).letterSpacing;
       if (typeof letterSpacing === 'number') {
         const letterSpacingRpx = pxToRpx(letterSpacing, conversionRate);
@@ -257,19 +361,19 @@ function generateWechatMiniProgramCode(node: SceneNode, conversionRate: number):
     }
 
     // 文本对齐
-    if ('textAlignHorizontal' in node && typeof (node as any).textAlignHorizontal === 'string') {
+    if ('textAlignHorizontal' in node && (node as any).textAlignHorizontal !== figma.mixed && typeof (node as any).textAlignHorizontal === 'string') {
       const align = (node as any).textAlignHorizontal.toLowerCase();
       styles.push(`text-align: ${align}`);
     }
 
     // 文本装饰
-    if ('textDecoration' in node && typeof (node as any).textDecoration === 'string') {
+    if ('textDecoration' in node && (node as any).textDecoration !== figma.mixed && typeof (node as any).textDecoration === 'string') {
       const decoration = (node as any).textDecoration.toLowerCase();
       styles.push(`text-decoration: ${decoration}`);
     }
 
     // 文本大小写
-    if ('textCase' in node && typeof (node as any).textCase === 'string') {
+    if ('textCase' in node && (node as any).textCase !== figma.mixed && typeof (node as any).textCase === 'string') {
       const textCase = (node as any).textCase.toLowerCase();
       if (textCase === 'upper') {
         styles.push(`text-transform: uppercase`);
@@ -296,6 +400,91 @@ function rgbToHex(color: { r: number; g: number; b: number }): string {
   const g = Math.round(color.g * 255);
   const b = Math.round(color.b * 255);
   return `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1).toUpperCase()}`;
+}
+
+// 将颜色对象转换为CSS颜色字符串（支持透明度）
+function colorToCss(color: { r: number; g: number; b: number; a?: number }): string {
+  const r = Math.round(color.r * 255);
+  const g = Math.round(color.g * 255);
+  const b = Math.round(color.b * 255);
+  // 如果没有alpha或alpha为1，使用十六进制
+  if (color.a === undefined || Math.abs(color.a - 1) < 0.001) {
+    return `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1).toUpperCase()}`;
+  } else {
+    // 使用rgba
+    return `rgba(${r}, ${g}, ${b}, ${color.a.toFixed(3)})`;
+  }
+}
+
+// 将Figma渐变转换为CSS渐变字符串
+function gradientToCss(paint: GradientPaint): string {
+  if (paint.type === 'GRADIENT_LINEAR') {
+    // 线性渐变
+    const stops = paint.gradientStops;
+    const colorStops = stops.map(stop => {
+      const color = colorToCss(stop.color);
+      const position = Math.round(stop.position * 100);
+      return `${color} ${position}%`;
+    }).join(', ');
+
+    // 计算渐变角度
+    let angle = 'to bottom'; // 默认方向
+    if (paint.gradientTransform) {
+      // gradientTransform是3x3矩阵: [[a,b,c],[d,e,f]]
+      const [[a, b, c], [d, e, f]] = paint.gradientTransform;
+      // 计算变换后的方向向量
+      const dx = a; // x方向变化
+      const dy = d; // y方向变化
+      // 计算角度（弧度），注意Figma坐标系y向下
+      const rad = Math.atan2(dy, dx);
+      // 转换为CSS角度（0deg表示向上，顺时针）
+      let cssDeg = rad * 180 / Math.PI;
+      // 调整角度，使0deg对应向上
+      cssDeg = 90 - cssDeg;
+      // 标准化到0-360度
+      cssDeg = ((cssDeg % 360) + 360) % 360;
+      angle = `${cssDeg.toFixed(1)}deg`;
+    }
+
+    return `linear-gradient(${angle}, ${colorStops})`;
+  } else if (paint.type === 'GRADIENT_RADIAL') {
+    // 径向渐变
+    const stops = paint.gradientStops;
+    const colorStops = stops.map(stop => {
+      const color = colorToCss(stop.color);
+      const position = Math.round(stop.position * 100);
+      return `${color} ${position}%`;
+    }).join(', ');
+    return `radial-gradient(circle, ${colorStops})`;
+  } else if (paint.type === 'GRADIENT_ANGULAR') {
+    // 角度渐变（锥形渐变）
+    const stops = paint.gradientStops;
+    const colorStops = stops.map(stop => {
+      const color = colorToCss(stop.color);
+      const position = Math.round(stop.position * 100);
+      return `${color} ${position}%`;
+    }).join(', ');
+    return `conic-gradient(${colorStops})`;
+  } else if (paint.type === 'GRADIENT_DIAMOND') {
+    // 菱形渐变（CSS不支持，使用径向渐变近似）
+    const stops = paint.gradientStops;
+    const colorStops = stops.map(stop => {
+      const color = colorToCss(stop.color);
+      const position = Math.round(stop.position * 100);
+      return `${color} ${position}%`;
+    }).join(', ');
+    return `radial-gradient(circle at center, ${colorStops})`;
+  }
+  // 默认返回空字符串
+  return '';
+}
+
+// 检查颜色是否可见（透明度 > 0.01，避免非常接近透明的颜色）
+function isColorVisible(color: { r: number; g: number; b: number; a?: number }): boolean {
+  // 如果没有alpha属性，默认可见 (a=1)
+  if (color.a === undefined) return true;
+  // 如果alpha大于0.01，认为可见（避免舍入误差）
+  return color.a > 0.01;
 }
 
 // 默认转换倍率：1px = 2rpx
