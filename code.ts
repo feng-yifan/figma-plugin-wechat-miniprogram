@@ -43,7 +43,7 @@ function figmaStyleNameToEnglishVariable(styleName: string): string {
     console.log(`最终变量名: "${name}"`);
   }
 
-  return name;
+  return '--' + name;
 }
 
 // 根据间距值获取CSS变量名
@@ -80,7 +80,7 @@ function getSpacingVariableName(value: number): string {
     namePart = 'negative-' + namePart;
   }
 
-  return `spacing-${namePart}`;
+  return `--spacing-${namePart}`;
 }
 
 // 根据样式ID获取样式名
