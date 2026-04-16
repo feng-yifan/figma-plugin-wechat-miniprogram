@@ -9,6 +9,9 @@
 // 调试模式标志
 const DEBUG_MODE = true;
 
+// 样式缓存（用于 dynamic-page 模式）
+const styleCache = new Map<string, string>();
+
 // 单位转换函数：将px转换为rpx
 function pxToRpx(value: number, conversionRate: number): number {
   return value * conversionRate;
@@ -83,85 +86,260 @@ function getSpacingVariableName(value: number): string {
   return `--spacing-${namePart}`;
 }
 
-// 根据样式ID获取样式名
-// 根据样式ID获取样式名
-function getStyleName(styleId: string): string | null {
+// 根据样式ID获取样式名（异步，兼容 dynamic-page 模式）
+async function getStyleName(styleId: string): Promise<string | null> {
+  if (!styleId) {
+    if (DEBUG_MODE) {
+      console.log('样式ID为空');
+    }
+    return null;
+  }
+
+  // 首先检查缓存
+  if (styleCache.has(styleId)) {
+    const cachedName = styleCache.get(styleId)!;
+    if (DEBUG_MODE) {
+      console.log(`从缓存获取样式: "${cachedName}" (ID: ${styleId})`);
+    }
+    return cachedName;
+  }
+
+  if (DEBUG_MODE) {
+    console.log(`样式ID "${styleId}" 不在缓存中，尝试异步获取样式名...`);
+  }
+
   try {
-    const style = figma.getStyleById(styleId);
-    if (style) {
+    // 使用异步API获取样式（兼容 dynamic-page 模式）
+    const style = await figma.getStyleByIdAsync(styleId);
+    if (style && style.name) {
+      const styleName = style.name;
+      // 缓存样式名
+      styleCache.set(styleId, styleName);
       if (DEBUG_MODE) {
-        console.log(`获取样式成功: "${style.name}" (ID: ${styleId})`);
+        console.log(`异步获取样式成功: "${styleName}" (ID: ${styleId})`);
       }
-      return style.name;
+      return styleName;
     } else {
       if (DEBUG_MODE) {
-        console.log(`样式ID "${styleId}" 不存在`);
+        console.log(`样式ID "${styleId}" 对应的样式不存在或没有名称`);
       }
+      // 缓存空值以避免重复请求
+      styleCache.set(styleId, '');
+      return null;
     }
   } catch (error) {
     if (DEBUG_MODE) {
-      console.error('获取样式名失败:', error, '样式ID:', styleId);
+      console.error(`异步获取样式名失败 (ID: ${styleId}):`, error);
     }
+    // 缓存空值以避免重复失败请求
+    styleCache.set(styleId, '');
+    return null;
   }
-  return null;
 }
 
-// 生成带有样式变量的颜色值
-function generateColorWithStyleVariable(color: { r: number; g: number; b: number; a?: number }, styleId?: string): string {
+// 生成带有样式变量的颜色值（异步，兼容 dynamic-page 模式）
+async function generateColorWithStyleVariable(color: { r: number; g: number; b: number; a?: number }, styleId?: string, isTextNode: boolean = false, enableVariables: boolean = true): Promise<string> {
   const colorString = colorToCss(color);
 
-  if (styleId) {
-    const styleName = getStyleName(styleId);
+  if (styleId && enableVariables) {
+    const styleName = await getStyleName(styleId);
+    let variableName: string | null = null;
+
     if (styleName) {
-      const variableName = figmaStyleNameToEnglishVariable(styleName);
+      // 首选：使用样式名转换的变量名
+      variableName = figmaStyleNameToEnglishVariable(styleName);
       if (variableName) {
         if (DEBUG_MODE) {
-          console.log(`样式转换: "${styleName}" -> "${variableName}"`);
+          console.log(`样式转换（通过样式名）: "${styleName}" -> "${variableName}"`);
           console.log(`生成: var(${variableName}, ${colorString})`);
         }
         return `var(${variableName}, ${colorString})`;
       } else if (DEBUG_MODE) {
         console.log(`样式名转换失败: "${styleName}"`);
       }
-    } else if (DEBUG_MODE) {
-      console.log(`样式ID "${styleId}" 对应的样式名未找到`);
     }
-  } else if (DEBUG_MODE) {
+
+    // 备选：使用样式ID生成变量名，根据是否文本节点决定类型
+    if (!variableName) {
+      const styleType = isTextNode ? 'text' : 'color';
+      variableName = styleIdToVariableName(styleId, styleType);
+      if (variableName) {
+        if (DEBUG_MODE) {
+          console.log(`样式转换（通过样式ID）: "${styleId}" -> "${variableName}" (类型: ${styleType})`);
+          console.log(`生成备选变量: var(${variableName}, ${colorString})`);
+        }
+        return `var(${variableName}, ${colorString})`;
+      }
+    }
+
+    if (DEBUG_MODE) {
+      console.log(`样式ID "${styleId}" 对应的样式名未找到，且无法生成备选变量名`);
+    }
+  } else if (DEBUG_MODE && styleId && !enableVariables) {
+    console.log(`变量功能已关闭，使用直接颜色值: ${colorString}`);
+  } else if (DEBUG_MODE && !styleId) {
     console.log(`无样式ID，使用直接颜色值: ${colorString}`);
   }
 
   return colorString;
 }
 
-// 生成带有样式变量的渐变值
-function generateGradientWithStyleVariable(gradientCss: string, styleId?: string): string {
-  if (styleId) {
-    const styleName = getStyleName(styleId);
+// 生成带有样式变量的渐变值（异步，兼容 dynamic-page 模式）
+async function generateGradientWithStyleVariable(gradientCss: string, styleId?: string, enableVariables: boolean = true): Promise<string> {
+  if (styleId && enableVariables) {
+    const styleName = await getStyleName(styleId);
+    let variableName: string | null = null;
+
     if (styleName) {
-      const variableName = figmaStyleNameToEnglishVariable(styleName);
+      // 首选：使用样式名转换的变量名
+      variableName = figmaStyleNameToEnglishVariable(styleName);
       if (variableName) {
         if (DEBUG_MODE) {
-          console.log(`渐变样式转换: "${styleName}" -> "${variableName}"`);
+          console.log(`渐变样式转换（通过样式名）: "${styleName}" -> "${variableName}"`);
           console.log(`生成渐变: var(${variableName}, ${gradientCss})`);
         }
         return `var(${variableName}, ${gradientCss})`;
       } else if (DEBUG_MODE) {
         console.log(`渐变样式名转换失败: "${styleName}"`);
       }
-    } else if (DEBUG_MODE) {
-      console.log(`渐变样式ID "${styleId}" 对应的样式名未找到`);
     }
-  } else if (DEBUG_MODE) {
+
+    // 备选：使用样式ID生成变量名，渐变类型
+    if (!variableName) {
+      variableName = styleIdToVariableName(styleId, 'gradient');
+      if (variableName) {
+        if (DEBUG_MODE) {
+          console.log(`渐变样式转换（通过样式ID）: "${styleId}" -> "${variableName}"`);
+          console.log(`生成备选渐变变量: var(${variableName}, ${gradientCss})`);
+        }
+        return `var(${variableName}, ${gradientCss})`;
+      }
+    }
+
+    if (DEBUG_MODE) {
+      console.log(`渐变样式ID "${styleId}" 对应的样式名未找到，且无法生成备选变量名`);
+    }
+  } else if (DEBUG_MODE && styleId && !enableVariables) {
+    console.log(`变量功能已关闭，使用直接渐变值: ${gradientCss}`);
+  } else if (DEBUG_MODE && !styleId) {
     console.log(`无渐变样式ID，使用直接渐变值: ${gradientCss}`);
   }
 
   return gradientCss;
 }
 
+// 生成带有样式变量的文本属性值（异步，兼容 dynamic-page 模式）
+async function generateTextPropertyWithStyleVariable(propertyName: string, fallbackValue: string, styleId?: string): Promise<string> {
+  if (styleId) {
+    const styleName = await getStyleName(styleId);
+    let baseVariableName: string | null = null;
+
+    if (styleName) {
+      // 首选：使用样式名转换的变量名
+      baseVariableName = figmaStyleNameToEnglishVariable(styleName);
+      if (baseVariableName) {
+        // 为属性生成变量名，例如 --text-heading-2-font-size
+        const variableName = `${baseVariableName}-${propertyName}`;
+        if (DEBUG_MODE) {
+          console.log(`文本属性样式转换（通过样式名）: "${styleName}" -> "${variableName}"`);
+          console.log(`生成: var(${variableName}, ${fallbackValue})`);
+        }
+        return `var(${variableName}, ${fallbackValue})`;
+      } else if (DEBUG_MODE) {
+        console.log(`文本样式名转换失败: "${styleName}"`);
+      }
+    }
+
+    // 备选：使用样式ID生成变量名，文本类型
+    if (!baseVariableName) {
+      baseVariableName = styleIdToVariableName(styleId, 'text');
+      if (baseVariableName) {
+        const variableName = `${baseVariableName}-${propertyName}`;
+        if (DEBUG_MODE) {
+          console.log(`文本属性样式转换（通过样式ID）: "${styleId}" -> "${variableName}"`);
+          console.log(`生成备选变量: var(${variableName}, ${fallbackValue})`);
+        }
+        return `var(${variableName}, ${fallbackValue})`;
+      }
+    }
+
+    if (DEBUG_MODE) {
+      console.log(`文本样式ID "${styleId}" 对应的样式名未找到，且无法生成备选变量名`);
+    }
+  } else if (DEBUG_MODE) {
+    console.log(`无文本样式ID，使用直接值: ${fallbackValue}`);
+  }
+
+  return fallbackValue;
+}
+
+// 从样式ID生成变量名（当无法获取样式名时使用）
+// 从样式ID中提取标识符（数字或短哈希）
+function extractStyleIdentifier(styleId: string): string {
+  if (!styleId) return '';
+
+  // 尝试从样式ID中提取数字部分（Figma样式ID格式如：S:1234,5678）
+  let numericId = '';
+  const matches = styleId.match(/\d+/g);
+  if (matches && matches.length > 0) {
+    // 取最后一个数字片段，通常是最具体的ID
+    const lastMatch = matches[matches.length - 1];
+    if (lastMatch.length >= 4) {
+      // 取最后4-6位数字，避免过长
+      numericId = lastMatch.substring(lastMatch.length - 6);
+    } else {
+      numericId = lastMatch;
+    }
+  }
+
+  if (numericId && /^\d+$/.test(numericId)) {
+    // 使用数字ID，更干净易读
+    let identifier = numericId;
+    // 如果数字ID以0开头，去掉前导零
+    identifier = identifier.replace(/^0+/, '');
+    if (identifier === '') identifier = '0';
+    return identifier;
+  } else {
+    // 备选：生成简短、可读的哈希值（4位十六进制）
+    let hash = 0;
+    for (let i = 0; i < styleId.length; i++) {
+      const char = styleId.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash = hash & hash; // 转换为32位整数
+    }
+    return Math.abs(hash).toString(16).substring(0, 4);
+  }
+}
+
+function styleIdToVariableName(styleId: string, styleType?: 'text' | 'color' | 'gradient'): string {
+  if (!styleId) return '';
+
+  const identifier = extractStyleIdentifier(styleId);
+
+  // 根据样式类型生成不同的变量名前缀
+  let prefix = 'style';
+  if (styleType === 'text') {
+    prefix = 'text';
+  } else if (styleType === 'color') {
+    prefix = 'color';
+  } else if (styleType === 'gradient') {
+    prefix = 'gradient';
+  }
+
+  const varName = `--${prefix}-${identifier}`;
+
+  if (DEBUG_MODE) {
+    console.log(`从样式ID生成变量名: "${styleId}" -> "${varName}" (类型: ${styleType || 'unknown'}, 标识符: ${identifier})`);
+  }
+
+  return varName;
+}
+
 
 // 获取节点样式并生成微信小程序代码
-function generateWechatMiniProgramCode(node: SceneNode, conversionRate: number): string {
+async function generateWechatMiniProgramCode(node: SceneNode, conversionRate: number, enableTextVariables: boolean = true): Promise<string> {
   const styles: string[] = [];
+  let commentAdded = false; // 跟踪注释是否已添加
 
   // 检查是否是文本节点
   const isTextNode = 'characters' in node && typeof (node as any).characters === 'string';
@@ -169,9 +347,28 @@ function generateWechatMiniProgramCode(node: SceneNode, conversionRate: number):
   // 获取所有样式ID
   const fillStyleId = (node as any).fillStyleId;
   const strokeStyleId = (node as any).strokeStyleId;
-  const textStyleId = isTextNode ? (node as any).textStyleId : null;
+  const rawTextStyleId = isTextNode ? (node as any).textStyleId : null;
   const effectStyleId = (node as any).effectStyleId;
   const gridStyleId = (node as any).gridStyleId;
+
+  // 规范化文本样式ID：可能是字符串、字符串数组或null
+  // 如果是数组，取第一个样式ID（通常是最具体的样式）
+  const textStyleId = (() => {
+    if (!rawTextStyleId) return null;
+    if (Array.isArray(rawTextStyleId) && rawTextStyleId.length > 0) {
+      if (DEBUG_MODE) {
+        console.log(`文本样式ID是数组，取第一个元素: ${rawTextStyleId[0]} (原数组: ${JSON.stringify(rawTextStyleId)})`);
+      }
+      return rawTextStyleId[0];
+    }
+    if (typeof rawTextStyleId === 'string') {
+      return rawTextStyleId;
+    }
+    if (DEBUG_MODE) {
+      console.log(`无法识别的文本样式ID类型: ${typeof rawTextStyleId}, 值:`, rawTextStyleId);
+    }
+    return null;
+  })();
 
   if (DEBUG_MODE) {
     console.log('样式ID:', { fillStyleId, strokeStyleId, textStyleId, effectStyleId, gridStyleId });
@@ -204,56 +401,6 @@ function generateWechatMiniProgramCode(node: SceneNode, conversionRate: number):
     styles.push(`height: ${heightRpx}rpx`);
   }
 
-  // 处理布局属性 - display
-  if ('layoutMode' in node) {
-    const layoutMode = (node as any).layoutMode;
-    if (layoutMode === 'HORIZONTAL' || layoutMode === 'VERTICAL') {
-      styles.push(`display: flex`);
-
-      // flex-direction
-      if (layoutMode === 'HORIZONTAL') {
-        styles.push(`flex-direction: row`);
-      } else {
-        styles.push(`flex-direction: column`);
-      }
-
-      // justify-content (primary axis alignment)
-      if ('primaryAxisAlignItems' in node) {
-        const alignment = (node as any).primaryAxisAlignItems;
-        const justifyContentMap: Record<string, string> = {
-          'MIN': 'flex-start',
-          'CENTER': 'center',
-          'MAX': 'flex-end',
-          'SPACE_BETWEEN': 'space-between'
-        };
-        if (justifyContentMap[alignment]) {
-          styles.push(`justify-content: ${justifyContentMap[alignment]}`);
-        }
-      }
-
-      // align-items (counter axis alignment)
-      if ('counterAxisAlignItems' in node) {
-        const alignment = (node as any).counterAxisAlignItems;
-        const alignItemsMap: Record<string, string> = {
-          'MIN': 'flex-start',
-          'CENTER': 'center',
-          'MAX': 'flex-end',
-          'BASELINE': 'baseline'
-        };
-        if (alignItemsMap[alignment]) {
-          styles.push(`align-items: ${alignItemsMap[alignment]}`);
-        }
-      }
-
-      // gap (item spacing)
-      if ('itemSpacing' in node && typeof (node as any).itemSpacing === 'number' && (node as any).itemSpacing > 0) {
-        const gapPx = (node as any).itemSpacing;
-        const gapRpx = pxToRpx(gapPx, conversionRate);
-        const variableName = getSpacingVariableName(gapPx);
-        styles.push(`gap: var(${variableName}, ${gapRpx}rpx)`);
-      }
-    }
-  }
 
   // 处理外边距
   const marginProperties = ['marginTop', 'marginRight', 'marginBottom', 'marginLeft'];
@@ -377,6 +524,24 @@ function generateWechatMiniProgramCode(node: SceneNode, conversionRate: number):
     styles.push(`background-color: ${parentBackgroundColor}`);
   }
 
+  // 如果是文本节点且有文本样式，在颜色处理之前添加注释
+  if (isTextNode && textStyleId && !commentAdded) {
+    const textStyleName = await getStyleName(textStyleId);
+    if (textStyleName) {
+      styles.push(`/* ${textStyleName} */`);
+      commentAdded = true;
+    } else {
+      // 无法获取样式名，使用与变量名相同的标识符
+      const identifier = extractStyleIdentifier(textStyleId);
+      styles.push(`/* 文本样式 ${identifier} */`);
+      commentAdded = true;
+
+      if (DEBUG_MODE) {
+        console.log(`为文本样式生成备选注释: ID="${textStyleId}" -> "文本样式 ${identifier}"`);
+      }
+    }
+  }
+
   // 然后处理节点本身的填充色
   if ('fills' in node && Array.isArray(node.fills) && node.fills.length > 0) {
     // 查找第一个可见的填充
@@ -393,9 +558,9 @@ function generateWechatMiniProgramCode(node: SceneNode, conversionRate: number):
       if (visibleFill.type === 'SOLID' && visibleFill.color) {
         // 检查颜色是否可见（透明度 > 0.01）
         if (isColorVisible(visibleFill.color)) {
-          // 对于颜色样式，始终使用fillStyleId
+          // 对于颜色样式，文本节点使用fillStyleId（颜色样式），非文本节点也使用fillStyleId
           const styleId = fillStyleId;
-          const color = generateColorWithStyleVariable(visibleFill.color, styleId);
+          const color = await generateColorWithStyleVariable(visibleFill.color, styleId, isTextNode, enableTextVariables);
           // 如果是文本节点，生成文本颜色；否则生成背景颜色
           if (isTextNode) {
             styles.push(`color: ${color}`);
@@ -418,13 +583,13 @@ function generateWechatMiniProgramCode(node: SceneNode, conversionRate: number):
             const firstStop = visibleFill.gradientStops[0];
             if (firstStop.color && isColorVisible(firstStop.color)) {
               const styleId = fillStyleId;
-              const color = generateColorWithStyleVariable(firstStop.color, styleId);
+              const color = await generateColorWithStyleVariable(firstStop.color, styleId, isTextNode, enableTextVariables);
               styles.push(`color: ${color}`);
             }
           } else {
             // 非文本节点，生成渐变背景
             const styleId = fillStyleId;
-            const gradientWithVar = generateGradientWithStyleVariable(gradientCss, styleId);
+            const gradientWithVar = await generateGradientWithStyleVariable(gradientCss, styleId, enableTextVariables);
             styles.push(`background-image: ${gradientWithVar}`);
           }
         }
@@ -450,7 +615,7 @@ function generateWechatMiniProgramCode(node: SceneNode, conversionRate: number):
       // 检查颜色是否可见（透明度 > 0）
       if (isColorVisible(stroke.color)) {
         hasVisibleStroke = true;
-        strokeColor = generateColorWithStyleVariable(stroke.color, strokeStyleId);
+        strokeColor = await generateColorWithStyleVariable(stroke.color, strokeStyleId, false, enableTextVariables);
       }
     }
   }
@@ -491,10 +656,17 @@ function generateWechatMiniProgramCode(node: SceneNode, conversionRate: number):
   }
 
   if (hasTextStyle) {
+
     // 字体大小
     if ('fontSize' in node && (node as any).fontSize !== figma.mixed && typeof (node as any).fontSize === 'number' && (node as any).fontSize > 0) {
-      const fontSizeRpx = pxToRpx((node as any).fontSize, conversionRate);
-      styles.push(`font-size: ${fontSizeRpx}rpx`);
+      const fontSizePx = (node as any).fontSize;
+      const fontSizeRpx = pxToRpx(fontSizePx, conversionRate);
+      const fallbackValue = `${fontSizeRpx}rpx`;
+      let value = fallbackValue;
+      if (enableTextVariables && textStyleId) {
+        value = await generateTextPropertyWithStyleVariable('font-size', fallbackValue, textStyleId);
+      }
+      styles.push(`font-size: ${value}`);
     }
 
     // 字体粗细
@@ -503,7 +675,12 @@ function generateWechatMiniProgramCode(node: SceneNode, conversionRate: number):
       let fontWeight = weight.toString();
       if (weight === 400) fontWeight = 'normal';
       if (weight === 700) fontWeight = 'bold';
-      styles.push(`font-weight: ${fontWeight}`);
+      const fallbackValue = fontWeight;
+      let value = fallbackValue;
+      if (enableTextVariables && textStyleId) {
+        value = await generateTextPropertyWithStyleVariable('font-weight', fallbackValue, textStyleId);
+      }
+      styles.push(`font-weight: ${value}`);
     }
 
     // 字体家族
@@ -518,62 +695,90 @@ function generateWechatMiniProgramCode(node: SceneNode, conversionRate: number):
     }
 
     if (fontFamily) {
-      styles.push(`font-family: "${fontFamily}"`);
+      const fallbackValue = `"${fontFamily}"`;
+      let value = fallbackValue;
+      if (enableTextVariables && textStyleId) {
+        value = await generateTextPropertyWithStyleVariable('font-family', fallbackValue, textStyleId);
+      }
+      styles.push(`font-family: ${value}`);
     }
 
     // 行高
     if ('lineHeight' in node && (node as any).lineHeight !== figma.mixed) {
       const lineHeight = (node as any).lineHeight;
+      let fallbackValue = '';
       if (typeof lineHeight === 'number' && lineHeight > 0) {
         const lineHeightRpx = pxToRpx(lineHeight, conversionRate);
-        styles.push(`line-height: ${lineHeightRpx}rpx`);
+        fallbackValue = `${lineHeightRpx}rpx`;
       } else if (typeof lineHeight === 'object' && lineHeight !== null) {
         if (lineHeight.unit === 'PIXELS' && typeof lineHeight.value === 'number') {
           const lineHeightRpx = pxToRpx(lineHeight.value, conversionRate);
-          styles.push(`line-height: ${lineHeightRpx}rpx`);
+          fallbackValue = `${lineHeightRpx}rpx`;
         } else if (lineHeight.unit === 'PERCENT' && typeof lineHeight.value === 'number') {
-          styles.push(`line-height: ${lineHeight.value}%`);
+          fallbackValue = `${lineHeight.value}%`;
         }
+      }
+      if (fallbackValue) {
+        let value = fallbackValue;
+        if (enableTextVariables && textStyleId) {
+          value = await generateTextPropertyWithStyleVariable('line-height', fallbackValue, textStyleId);
+        }
+        styles.push(`line-height: ${value}`);
       }
     }
 
     // 字间距
     if ('letterSpacing' in node && (node as any).letterSpacing !== figma.mixed) {
       const letterSpacing = (node as any).letterSpacing;
+      let fallbackValue = '';
       if (typeof letterSpacing === 'number') {
         const letterSpacingRpx = pxToRpx(letterSpacing, conversionRate);
-        styles.push(`letter-spacing: ${letterSpacingRpx}rpx`);
+        fallbackValue = `${letterSpacingRpx}rpx`;
       } else if (typeof letterSpacing === 'object' && letterSpacing !== null) {
         if (letterSpacing.unit === 'PIXELS' && typeof letterSpacing.value === 'number') {
           const letterSpacingRpx = pxToRpx(letterSpacing.value, conversionRate);
-          styles.push(`letter-spacing: ${letterSpacingRpx}rpx`);
+          fallbackValue = `${letterSpacingRpx}rpx`;
         } else if (letterSpacing.unit === 'PERCENT' && typeof letterSpacing.value === 'number') {
-          styles.push(`letter-spacing: ${letterSpacing.value}%`);
+          fallbackValue = `${letterSpacing.value}%`;
         }
+      }
+      if (fallbackValue) {
+        const value = fallbackValue; // 字间距直接输出值，不生成变量
+        styles.push(`letter-spacing: ${value}`);
       }
     }
 
     // 文本对齐
     if ('textAlignHorizontal' in node && (node as any).textAlignHorizontal !== figma.mixed && typeof (node as any).textAlignHorizontal === 'string') {
       const align = (node as any).textAlignHorizontal.toLowerCase();
-      styles.push(`text-align: ${align}`);
+      const fallbackValue = align;
+      const value = fallbackValue; // 文本对齐直接输出值，不生成变量
+      styles.push(`text-align: ${value}`);
     }
 
     // 文本装饰
     if ('textDecoration' in node && (node as any).textDecoration !== figma.mixed && typeof (node as any).textDecoration === 'string') {
       const decoration = (node as any).textDecoration.toLowerCase();
-      styles.push(`text-decoration: ${decoration}`);
+      const fallbackValue = decoration;
+      const value = fallbackValue; // 文本装饰直接输出值，不生成变量
+      styles.push(`text-decoration: ${value}`);
     }
 
     // 文本大小写
     if ('textCase' in node && (node as any).textCase !== figma.mixed && typeof (node as any).textCase === 'string') {
       const textCase = (node as any).textCase.toLowerCase();
+      let transform = '';
       if (textCase === 'upper') {
-        styles.push(`text-transform: uppercase`);
+        transform = 'uppercase';
       } else if (textCase === 'lower') {
-        styles.push(`text-transform: lowercase`);
+        transform = 'lowercase';
       } else if (textCase === 'title') {
-        styles.push(`text-transform: capitalize`);
+        transform = 'capitalize';
+      }
+      if (transform) {
+        const fallbackValue = transform;
+        const value = fallbackValue; // 文本大小写直接输出值，不生成变量
+        styles.push(`text-transform: ${value}`);
       }
     }
   }
@@ -584,7 +789,9 @@ function generateWechatMiniProgramCode(node: SceneNode, conversionRate: number):
   }
 
   // 将样式数组连接为字符串，每行一个样式
-  return styles.join(';\n') + (styles.length > 0 ? ';' : '');
+  // 注释行不加分号，属性行加分号
+  const result = styles.map(style => style.startsWith('/*') ? style : style + ';').join('\n');
+  return result;
 }
 
 // 将RGB颜色对象转换为十六进制颜色代码
@@ -600,13 +807,8 @@ function colorToCss(color: { r: number; g: number; b: number; a?: number }): str
   const r = Math.round(color.r * 255);
   const g = Math.round(color.g * 255);
   const b = Math.round(color.b * 255);
-  // 如果没有alpha或alpha为1，使用十六进制
-  if (color.a === undefined || Math.abs(color.a - 1) < 0.001) {
-    return `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1).toUpperCase()}`;
-  } else {
-    // 使用rgba
-    return `rgba(${r}, ${g}, ${b}, ${color.a.toFixed(3)})`;
-  }
+  // 微信小程序 WXSS 要求十六进制，忽略透明度（透明度由单独的 opacity 属性处理）
+  return `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1).toUpperCase()}`;
 }
 
 // 将Figma渐变转换为CSS渐变字符串
@@ -686,32 +888,43 @@ const DEFAULT_CONVERSION_RATE = 2;
 // 当前转换倍率
 let currentConversionRate = DEFAULT_CONVERSION_RATE;
 
-// 加载保存的转换倍率
-async function loadConversionRate() {
+// 是否启用文本变量（默认开启）
+let enableTextVariables = true;
+
+// 加载保存的设置
+async function loadSettings() {
   try {
     const savedRate = await figma.clientStorage.getAsync('conversionRate');
     if (savedRate !== undefined) {
       currentConversionRate = savedRate;
     }
+
+    const savedEnableTextVariables = await figma.clientStorage.getAsync('enableTextVariables');
+    if (savedEnableTextVariables !== undefined) {
+      enableTextVariables = savedEnableTextVariables;
+    }
   } catch (error) {
-    console.error('加载转换倍率失败:', error);
+    console.error('加载设置失败:', error);
   }
 }
 
-// 保存转换倍率
-async function saveConversionRate(rate: number) {
+// 保存设置
+async function saveSettings(rate: number, enableTextVariablesSetting: boolean) {
   try {
     await figma.clientStorage.setAsync('conversionRate', rate);
+    await figma.clientStorage.setAsync('enableTextVariables', enableTextVariablesSetting);
     currentConversionRate = rate;
+    enableTextVariables = enableTextVariablesSetting;
     return true;
   } catch (error) {
-    console.error('保存转换倍率失败:', error);
+    console.error('保存设置失败:', error);
     return false;
   }
 }
 
 // 初始化加载设置
-loadConversionRate();
+loadSettings();
+
 
 // 处理插件命令
 figma.on('run', ({ command }) => {
@@ -722,18 +935,23 @@ figma.on('run', ({ command }) => {
     // 处理来自UI的消息
     figma.ui.onmessage = async (msg) => {
       if (msg.type === 'saveSettings') {
-        const success = await saveConversionRate(msg.conversionRate);
+        const success = await saveSettings(
+          msg.conversionRate,
+          msg.enableTextVariables !== undefined ? msg.enableTextVariables : true
+        );
         if (success) {
           figma.ui.postMessage({
             type: 'settingsSaved',
-            conversionRate: msg.conversionRate
+            conversionRate: msg.conversionRate,
+            enableTextVariables: msg.enableTextVariables
           });
         }
       } else if (msg.type === 'loadSettings') {
-        await loadConversionRate();
+        await loadSettings();
         figma.ui.postMessage({
           type: 'settingsLoaded',
-          conversionRate: currentConversionRate
+          conversionRate: currentConversionRate,
+          enableTextVariables: enableTextVariables
         });
       }
     };
@@ -743,11 +961,11 @@ figma.on('run', ({ command }) => {
 });
 
 // This provides the callback to generate the code.
-figma.codegen.on('generate', (event) => {
+figma.codegen.on('generate', async (event) => {
   const node = event.node;
 
-  // 使用当前转换倍率
-  const code = generateWechatMiniProgramCode(node, currentConversionRate);
+  // 使用当前转换倍率和文本变量设置
+  const code = await generateWechatMiniProgramCode(node, currentConversionRate, enableTextVariables);
 
   return [
     {

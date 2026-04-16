@@ -251,6 +251,89 @@
       display: block;
       border: 1px solid #FFCDD2;
     }
+
+    /* 开关样式 */
+    .toggle-option {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px;
+      background-color: #f8f9fa;
+      border-radius: 6px;
+      margin-bottom: 12px;
+    }
+
+    .toggle-label {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      width: 180px ;
+      margin-right: 10px;
+    }
+
+    .toggle-text {
+      font-size: 14px;
+      font-weight: 500;
+      color: #222;
+    }
+
+    .toggle-description {
+      font-size: 12px;
+      color: #666;
+      line-height: 1.4;
+    }
+
+    /* 开关样式 */
+    .switch {
+      position: relative;
+      display: inline-block;
+      width: 52px;
+      height: 26px;
+    }
+
+    .switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+
+    .slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: #ccc;
+      transition: .4s;
+    }
+
+    .slider:before {
+      position: absolute;
+      content: "";
+      height: 18px;
+      width: 18px;
+      left: 4px;
+      bottom: 4px;
+      background-color: white;
+      transition: .4s;
+    }
+
+    input:checked + .slider {
+      background-color: #18A0FB;
+    }
+
+    input:checked + .slider:before {
+      transform: translateX(26px);
+    }
+
+    .slider.round {
+      border-radius: 34px;
+    }
+
+    .slider.round:before {
+      border-radius: 50%;
+    }
   </style>
 </head>
 <body>
@@ -311,6 +394,25 @@
       </div>
     </div>
 
+    <div class="conversion-formula">
+      <div class="formula-title">代码生成选项</div>
+
+      <div class="toggle-option">
+        <div class="toggle-label">
+          <span class="toggle-text">启用文本变量</span>
+          <span class="toggle-description">开启时生成带变量的代码（如 --text-heading-1），关闭时输出固定值</span>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="enableTextVariables" checked>
+          <span class="slider round"></span>
+        </label>
+      </div>
+
+      <div class="help-text">
+        变量功能会将文本样式属性（字体大小、粗细、行高、字族）转换为 CSS 变量，便于设计系统统一管理。
+      </div>
+    </div>
+
     <div class="button-group">
       <button class="save-btn" id="saveBtn">保存设置</button>
       <button class="reset-btn" id="resetBtn">恢复默认</button>
@@ -323,6 +425,7 @@
     // 获取DOM元素
     const conversionRateInput = document.getElementById('conversionRate');
     const rateSlider = document.getElementById('rateSlider');
+    const enableTextVariablesToggle = document.getElementById('enableTextVariables');
     const wechatNumber = document.getElementById('wechatNumber');
     const example1 = document.getElementById('example1');
     const example2 = document.getElementById('example2');
@@ -353,6 +456,7 @@
     // 保存设置
     function saveSettings() {
       const rate = parseFloat(conversionRateInput.value);
+      const enableTextVariables = enableTextVariablesToggle.checked;
 
       if (isNaN(rate) || rate <= 0) {
         showMessage('请输入有效的转换倍率（大于0）', 'error');
@@ -363,7 +467,8 @@
       parent.postMessage({
         pluginMessage: {
           type: 'saveSettings',
-          conversionRate: rate
+          conversionRate: rate,
+          enableTextVariables: enableTextVariables
         }
       }, '*');
 
@@ -373,13 +478,15 @@
     // 恢复默认设置
     function resetSettings() {
       conversionRateInput.value = DEFAULT_RATE;
+      enableTextVariablesToggle.checked = true; // 默认开启
       updateAllDisplays();
 
       // 发送默认设置到插件
       parent.postMessage({
         pluginMessage: {
           type: 'saveSettings',
-          conversionRate: DEFAULT_RATE
+          conversionRate: DEFAULT_RATE,
+          enableTextVariables: true
         }
       }, '*');
 
@@ -411,7 +518,10 @@
 
       if (pluginMessage && pluginMessage.type === 'settingsLoaded') {
         const rate = pluginMessage.conversionRate || DEFAULT_RATE;
+        const enableTextVariables = pluginMessage.enableTextVariables !== undefined ? pluginMessage.enableTextVariables : true;
+
         conversionRateInput.value = rate;
+        enableTextVariablesToggle.checked = enableTextVariables;
         updateAllDisplays();
       }
     });
