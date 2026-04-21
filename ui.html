@@ -121,67 +121,6 @@
       color: #666;
     }
 
-    .slider-container {
-      margin: 20px 0;
-    }
-
-    input[type="range"] {
-      width: 100%;
-      height: 4px;
-      border-radius: 2px;
-      background: #e0e0e0;
-      outline: none;
-      -webkit-appearance: none;
-    }
-
-    input[type="range"]::-webkit-slider-thumb {
-      -webkit-appearance: none;
-      width: 20px;
-      height: 20px;
-      border-radius: 50%;
-      background: #18A0FB;
-      cursor: pointer;
-      border: 2px solid white;
-      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
-    }
-
-    .examples {
-      background-color: #f8f9fa;
-      border-radius: 6px;
-      padding: 16px;
-      margin-top: 20px;
-      border-left: 4px solid #18A0FB;
-    }
-
-    .examples-title {
-      font-size: 13px;
-      font-weight: 500;
-      margin-bottom: 8px;
-      color: #555;
-    }
-
-    .example-item {
-      display: flex;
-      justify-content: space-between;
-      font-size: 13px;
-      padding: 4px 0;
-      border-bottom: 1px solid #eee;
-    }
-
-    .example-item:last-child {
-      border-bottom: none;
-    }
-
-    .example-figma {
-      color: #18A0FB;
-      font-weight: 500;
-    }
-
-    .example-wechat {
-      color: #07C160;
-      font-weight: 500;
-    }
-
     .help-text {
       margin-top: 16px;
       font-size: 12px;
@@ -338,8 +277,6 @@
 </head>
 <body>
   <div class="container">
-    <h1>微信小程序单位转换设置</h1>
-
     <div class="conversion-formula">
       <div class="formula-title">转换公式</div>
 
@@ -362,29 +299,6 @@
         <div class="rate-input-container">
           <input type="number" id="conversionRate" min="0.1" max="10" step="0.1" value="2">
           <div class="rate-unit">倍</div>
-        </div>
-      </div>
-
-      <div class="slider-container">
-        <input type="range" id="rateSlider" min="0.1" max="10" step="0.1" value="2">
-      </div>
-
-      <div class="examples">
-        <div class="examples-title">示例值</div>
-        <div class="example-item">
-          <span class="example-figma">50px</span>
-          <span>→</span>
-          <span class="example-wechat" id="example1">100rpx</span>
-        </div>
-        <div class="example-item">
-          <span class="example-figma">100px</span>
-          <span>→</span>
-          <span class="example-wechat" id="example2">200rpx</span>
-        </div>
-        <div class="example-item">
-          <span class="example-figma">200px</span>
-          <span>→</span>
-          <span class="example-wechat" id="example3">400rpx</span>
         </div>
       </div>
 
@@ -424,12 +338,8 @@
   <script>
     // 获取DOM元素
     const conversionRateInput = document.getElementById('conversionRate');
-    const rateSlider = document.getElementById('rateSlider');
     const enableTextVariablesToggle = document.getElementById('enableTextVariables');
     const wechatNumber = document.getElementById('wechatNumber');
-    const example1 = document.getElementById('example1');
-    const example2 = document.getElementById('example2');
-    const example3 = document.getElementById('example3');
     const saveBtn = document.getElementById('saveBtn');
     const resetBtn = document.getElementById('resetBtn');
     const statusMessage = document.getElementById('statusMessage');
@@ -441,16 +351,8 @@
     function updateAllDisplays() {
       const rate = parseFloat(conversionRateInput.value);
 
-      // 更新滑块值（保持同步）
-      rateSlider.value = rate;
-
       // 更新微信小程序显示值（1px = Xrpx）
       wechatNumber.textContent = rate;
-
-      // 更新示例值
-      example1.textContent = Math.round(50 * rate) + 'rpx';
-      example2.textContent = Math.round(100 * rate) + 'rpx';
-      example3.textContent = Math.round(200 * rate) + 'rpx';
     }
 
     // 保存设置
@@ -528,12 +430,6 @@
 
     // 事件监听 - 输入框变化
     conversionRateInput.addEventListener('input', () => {
-      updateAllDisplays();
-    });
-
-    // 事件监听 - 滑块变化
-    rateSlider.addEventListener('input', () => {
-      conversionRateInput.value = rateSlider.value;
       updateAllDisplays();
     });
 
