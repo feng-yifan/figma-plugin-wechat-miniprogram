@@ -317,7 +317,7 @@
           <span class="toggle-description">开启时生成带变量的代码（如 --text-heading-1），关闭时输出固定值</span>
         </div>
         <label class="switch">
-          <input type="checkbox" id="enableTextVariables" checked>
+          <input type="checkbox" id="enableTextVariables">
           <span class="slider round"></span>
         </label>
       </div>
@@ -380,7 +380,7 @@
     // 恢复默认设置
     function resetSettings() {
       conversionRateInput.value = DEFAULT_RATE;
-      enableTextVariablesToggle.checked = true; // 默认开启
+      enableTextVariablesToggle.checked = false; // 默认关闭
       updateAllDisplays();
 
       // 发送默认设置到插件
@@ -388,7 +388,7 @@
         pluginMessage: {
           type: 'saveSettings',
           conversionRate: DEFAULT_RATE,
-          enableTextVariables: true
+          enableTextVariables: false
         }
       }, '*');
 
@@ -420,7 +420,7 @@
 
       if (pluginMessage && pluginMessage.type === 'settingsLoaded') {
         const rate = pluginMessage.conversionRate || DEFAULT_RATE;
-        const enableTextVariables = pluginMessage.enableTextVariables !== undefined ? pluginMessage.enableTextVariables : true;
+        const enableTextVariables = pluginMessage.enableTextVariables !== undefined ? pluginMessage.enableTextVariables : false;
 
         conversionRateInput.value = rate;
         enableTextVariablesToggle.checked = enableTextVariables;

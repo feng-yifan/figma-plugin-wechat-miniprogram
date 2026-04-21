@@ -49,42 +49,6 @@ function figmaStyleNameToEnglishVariable(styleName: string): string {
   return '--' + name;
 }
 
-// 根据间距值获取CSS变量名
-function getSpacingVariableName(value: number): string {
-  // 常见间距值映射
-  const spacingValueToName: Record<number, string> = {
-    4: 'xs',
-    6: 'middle',
-    8: 'sm',
-    12: 'md',
-    16: 'lg',
-    24: 'xl',
-    32: 'xxl',
-    48: 'xxxl',
-    64: 'xxxxl'
-  };
-
-  // 四舍五入到整数
-  const roundedValue = Math.round(value);
-  const absoluteValue = Math.abs(roundedValue);
-  const isNegative = roundedValue < 0;
-
-  // 如果值在映射中，使用映射的名称
-  let namePart: string;
-  if (spacingValueToName[absoluteValue]) {
-    namePart = spacingValueToName[absoluteValue];
-  } else {
-    // 否则使用数值作为变量名
-    namePart = absoluteValue.toString();
-  }
-
-  // 添加负号前缀
-  if (isNegative) {
-    namePart = 'negative-' + namePart;
-  }
-
-  return `--spacing-${namePart}`;
-}
 
 // 根据样式ID获取样式名（异步，兼容 dynamic-page 模式）
 async function getStyleName(styleId: string): Promise<string | null> {
@@ -337,7 +301,7 @@ function styleIdToVariableName(styleId: string, styleType?: 'text' | 'color' | '
 
 
 // 获取节点样式并生成微信小程序代码
-async function generateWechatMiniProgramCode(node: SceneNode, conversionRate: number, enableTextVariables: boolean = true): Promise<string> {
+async function generateWechatMiniProgramCode(node: SceneNode, conversionRate: number, enableTextVariables: boolean = false): Promise<string> {
   const styles: string[] = [];
   let commentAdded = false; // 跟踪注释是否已添加
 
@@ -426,11 +390,10 @@ async function generateWechatMiniProgramCode(node: SceneNode, conversionRate: nu
     const marginBottom = marginBottomPx !== 0 ? pxToRpx(marginBottomPx, conversionRate) : 0;
     const marginLeft = marginLeftPx !== 0 ? pxToRpx(marginLeftPx, conversionRate) : 0;
 
-    // 生成变量引用函数
+    // 直接使用 rpx 值，不生成变量
     const spacingVar = (px: number, rpx: number): string => {
       if (px === 0) return '0';
-      const variableName = getSpacingVariableName(px);
-      return `var(${variableName}, ${rpx}rpx)`;
+      return `${rpx}rpx`;
     };
 
     if (marginTop === marginRight && marginTop === marginBottom && marginTop === marginLeft) {
@@ -457,11 +420,10 @@ async function generateWechatMiniProgramCode(node: SceneNode, conversionRate: nu
   }
 
   if (hasPadding) {
-    // 生成变量引用函数（与margin部分相同）
+    // 直接使用 rpx 值，不生成变量
     const spacingVar = (px: number, rpx: number): string => {
       if (px === 0) return '0';
-      const variableName = getSpacingVariableName(px);
-      return `var(${variableName}, ${rpx}rpx)`;
+      return `${rpx}rpx`;
     };
 
     // 处理统一的 padding
@@ -888,8 +850,8 @@ const DEFAULT_CONVERSION_RATE = 2;
 // 当前转换倍率
 let currentConversionRate = DEFAULT_CONVERSION_RATE;
 
-// 是否启用文本变量（默认开启）
-let enableTextVariables = true;
+// 是否启用文本变量（默认关闭）
+let enableTextVariables = false;
 
 // 加载保存的设置
 async function loadSettings() {
@@ -937,7 +899,7 @@ figma.on('run', ({ command }) => {
       if (msg.type === 'saveSettings') {
         const success = await saveSettings(
           msg.conversionRate,
-          msg.enableTextVariables !== undefined ? msg.enableTextVariables : true
+          msg.enableTextVariables !== undefined ? msg.enableTextVariables : false
         );
         if (success) {
           figma.ui.postMessage({
