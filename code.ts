@@ -299,9 +299,187 @@ function styleIdToVariableName(styleId: string, styleType?: 'text' | 'color' | '
   return varName;
 }
 
+// 获取属性绑定的变量名（如果存在）
+async function getBoundVariableName(node: SceneNode, property: string, enableVariables: boolean): Promise<string | null> {
+  const cornerRadiusProperties = ['cornerRadius', 'topLeftRadius', 'topRightRadius', 'bottomRightRadius', 'bottomLeftRadius'];
+  if (DEBUG_MODE && cornerRadiusProperties.includes(property)) {
+    console.log(`getBoundVariableName: 检查属性 "${property}", enableVariables=${enableVariables}`);
+  }
+
+  if (!enableVariables) {
+    if (DEBUG_MODE && cornerRadiusProperties.includes(property)) {
+      console.log(`getBoundVariableName: 变量功能已关闭，跳过属性 "${property}"`);
+    }
+    return null;
+  }
+
+  // 检查Figma Variables API是否可用
+  if (!figma.variables || typeof figma.variables.getVariableByIdAsync !== 'function') {
+    // if (DEBUG_MODE) {
+    //   console.log('Figma Variables API不可用');
+    // }
+    return null;
+  }
+
+  try {
+    // 检查boundVariables属性是否存在
+    const boundVariables = (node as any).boundVariables;
+    if (!boundVariables || typeof boundVariables !== 'object') {
+      if (DEBUG_MODE && cornerRadiusProperties.includes(property)) {
+        console.log(`节点没有boundVariables属性或不是对象`, boundVariables);
+      }
+      return null;
+    }
+
+    // 只对圆角属性输出详细调试信息
+    if (DEBUG_MODE && cornerRadiusProperties.includes(property)) {
+      console.log(`检查属性 ${property} 的变量绑定，boundVariables结构:`, boundVariables);
+      console.log(`boundVariables 类型:`, typeof boundVariables);
+      console.log(`boundVariables 键:`, Object.keys(boundVariables));
+      // 详细打印每个键的值
+      for (const key in boundVariables) {
+        console.log(`boundVariables[${key}]:`, boundVariables[key]);
+        console.log(`boundVariables[${key}] JSON:`, JSON.stringify(boundVariables[key]));
+      }
+    }
+
+    // 检查特定属性是否绑定到变量
+    const variableBinding = boundVariables[property];
+    if (!variableBinding) {
+      if (DEBUG_MODE && cornerRadiusProperties.includes(property)) {
+        console.log(`属性 ${property} 没有变量绑定`);
+      }
+      return null;
+    }
+
+    // 只对圆角属性输出变量绑定结构信息
+    if (DEBUG_MODE && cornerRadiusProperties.includes(property)) {
+      console.log(`属性 ${property} 的变量绑定结构:`, variableBinding);
+      console.log(`变量绑定结构JSON:`, JSON.stringify(variableBinding));
+      console.log(`变量绑定类型:`, typeof variableBinding);
+      console.log(`是数组吗?`, Array.isArray(variableBinding));
+    }
+
+    // 变量绑定可能是数组或对象，处理不同格式
+    let variableId: string | undefined;
+
+    if (Array.isArray(variableBinding)) {
+      if (variableBinding.length === 0) {
+        // if (DEBUG_MODE) {
+        //   console.log(`变量绑定是空数组`);
+        // }
+        return null;
+      }
+      // 取第一个元素，可能包含id字段
+      const firstBinding = variableBinding[0];
+      // if (DEBUG_MODE) {
+      //   console.log(`第一个绑定元素:`, firstBinding);
+      // }
+      if (firstBinding && typeof firstBinding === 'object') {
+        // if (DEBUG_MODE) {
+        //   console.log(`第一个绑定元素的键:`, Object.keys(firstBinding));
+        //   for (const key in firstBinding) {
+        //     console.log(`firstBinding.${key}:`, firstBinding[key]);
+        //   }
+        // }
+        variableId = firstBinding.id;
+        // if (DEBUG_MODE) {
+        //   console.log(`从数组元素中提取的变量ID:`, variableId);
+        // }
+      }
+    } else if (typeof variableBinding === 'object' && variableBinding !== null) {
+      // 可能是直接的对象，如 { id: '...', type: 'VARIABLE_ALIAS' }
+      // if (DEBUG_MODE) {
+      //   console.log(`变量绑定对象的键:`, Object.keys(variableBinding));
+      //   for (const key in variableBinding) {
+      //     console.log(`variableBinding.${key}:`, variableBinding[key]);
+      //   }
+      // }
+      variableId = (variableBinding as any).id;
+      // if (DEBUG_MODE) {
+      //   console.log(`从对象中提取的变量ID:`, variableId);
+      // }
+    } else {
+      // if (DEBUG_MODE) {
+      //   console.log(`无法识别的变量绑定类型:`, variableBinding);
+      // }
+      return null;
+    }
+
+    if (!variableId) {
+      // if (DEBUG_MODE) {
+      //   console.log(`无法从变量绑定中提取变量ID:`, variableBinding);
+      // }
+      return null;
+    }
+
+    // if (DEBUG_MODE) {
+    //   console.log(`获取变量对象，ID: ${variableId}`);
+    // }
+
+    // 获取变量对象
+    // if (DEBUG_MODE) {
+    //   console.log(`正在获取变量对象，ID: "${variableId}"`);
+    // }
+    const variable = await figma.variables.getVariableByIdAsync(variableId);
+    if (!variable) {
+      // if (DEBUG_MODE) {
+      //   console.log(`变量ID "${variableId}" 对应的变量不存在`);
+      // }
+      return null;
+    }
+
+    // if (DEBUG_MODE) {
+    //   console.log(`成功获取变量对象:`, variable);
+    // }
+
+    // 获取变量名，并确保以"--"开头
+    let varName = variable.name;
+    if (!varName) {
+      // if (DEBUG_MODE) {
+      //   console.log(`变量没有名称:`, variable);
+      // }
+      return null;
+    }
+
+    // if (DEBUG_MODE) {
+    //   console.log(`原始变量名: "${varName}"`);
+    // }
+
+    // 确保变量名以"--"开头
+    if (!varName.startsWith('--')) {
+      varName = '--' + varName;
+      // if (DEBUG_MODE) {
+      //   console.log(`添加"--"前缀: "${varName}"`);
+      // }
+    }
+
+    // 将变量名中的 "/" 替换为 "-"（Figma变量名可能包含路径分隔符）
+    const originalVarName = varName;
+    varName = varName.replace(/\//g, '-');
+    if (originalVarName !== varName) {
+      // if (DEBUG_MODE) {
+      //   console.log(`替换"/"为"-": "${originalVarName}" -> "${varName}"`);
+      // }
+    }
+
+    if (DEBUG_MODE && cornerRadiusProperties.includes(property)) {
+      console.log(`检测到变量绑定: ${property} -> ${varName} (原始名称: "${variable.name}", 变量ID: "${variableId}")`);
+    }
+
+    return varName;
+  } catch (error) {
+    if (DEBUG_MODE && cornerRadiusProperties.includes(property)) {
+      console.error(`获取变量绑定失败 (${property}):`, error);
+    }
+    return null;
+  }
+}
+
+
 
 // 获取节点样式并生成微信小程序代码
-async function generateWechatMiniProgramCode(node: SceneNode, conversionRate: number, enableTextVariables: boolean = false): Promise<string> {
+async function generateWechatMiniProgramCode(node: SceneNode, conversionRate: number, enableVariables: boolean = false): Promise<string> {
   const styles: string[] = [];
   let commentAdded = false; // 跟踪注释是否已添加
 
@@ -320,23 +498,23 @@ async function generateWechatMiniProgramCode(node: SceneNode, conversionRate: nu
   const textStyleId = (() => {
     if (!rawTextStyleId) return null;
     if (Array.isArray(rawTextStyleId) && rawTextStyleId.length > 0) {
-      if (DEBUG_MODE) {
-        console.log(`文本样式ID是数组，取第一个元素: ${rawTextStyleId[0]} (原数组: ${JSON.stringify(rawTextStyleId)})`);
-      }
+      // if (DEBUG_MODE) {
+      //   console.log(`文本样式ID是数组，取第一个元素: ${rawTextStyleId[0]} (原数组: ${JSON.stringify(rawTextStyleId)})`);
+      // }
       return rawTextStyleId[0];
     }
     if (typeof rawTextStyleId === 'string') {
       return rawTextStyleId;
     }
-    if (DEBUG_MODE) {
-      console.log(`无法识别的文本样式ID类型: ${typeof rawTextStyleId}, 值:`, rawTextStyleId);
-    }
+    // if (DEBUG_MODE) {
+    //   console.log(`无法识别的文本样式ID类型: ${typeof rawTextStyleId}, 值:`, rawTextStyleId);
+    // }
     return null;
   })();
 
-  if (DEBUG_MODE) {
-    console.log('样式ID:', { fillStyleId, strokeStyleId, textStyleId, effectStyleId, gridStyleId });
-  }
+  // if (DEBUG_MODE) {
+  //   console.log('样式ID:', { fillStyleId, strokeStyleId, textStyleId, effectStyleId, gridStyleId });
+  // }
 
   // 检查父节点是否有可见填充色（用于容器背景）
   let parentBackgroundColor = '';
@@ -356,13 +534,23 @@ async function generateWechatMiniProgramCode(node: SceneNode, conversionRate: nu
 
   // 处理宽度和高度
   if ('width' in node) {
-    const widthRpx = pxToRpx(node.width, conversionRate);
-    styles.push(`width: ${widthRpx}rpx`);
+    const widthPx = node.width;
+    const widthRpx = pxToRpx(widthPx, conversionRate);
+    const widthVar = await getBoundVariableName(node, 'width', enableVariables);
+    const widthValue = widthVar
+      ? `var(${widthVar}, ${widthRpx}rpx)`
+      : `${widthRpx}rpx`;
+    styles.push(`width: ${widthValue}`);
   }
 
   if ('height' in node) {
-    const heightRpx = pxToRpx(node.height, conversionRate);
-    styles.push(`height: ${heightRpx}rpx`);
+    const heightPx = node.height;
+    const heightRpx = pxToRpx(heightPx, conversionRate);
+    const heightVar = await getBoundVariableName(node, 'height', enableVariables);
+    const heightValue = heightVar
+      ? `var(${heightVar}, ${heightRpx}rpx)`
+      : `${heightRpx}rpx`;
+    styles.push(`height: ${heightValue}`);
   }
 
 
@@ -385,26 +573,43 @@ async function generateWechatMiniProgramCode(node: SceneNode, conversionRate: nu
     const marginLeftPx = 'marginLeft' in node && typeof (node as any).marginLeft === 'number' ? (node as any).marginLeft : 0;
 
     // 转换为rpx
-    const marginTop = marginTopPx !== 0 ? pxToRpx(marginTopPx, conversionRate) : 0;
-    const marginRight = marginRightPx !== 0 ? pxToRpx(marginRightPx, conversionRate) : 0;
-    const marginBottom = marginBottomPx !== 0 ? pxToRpx(marginBottomPx, conversionRate) : 0;
-    const marginLeft = marginLeftPx !== 0 ? pxToRpx(marginLeftPx, conversionRate) : 0;
+    const marginTopRpx = marginTopPx !== 0 ? pxToRpx(marginTopPx, conversionRate) : 0;
+    const marginRightRpx = marginRightPx !== 0 ? pxToRpx(marginRightPx, conversionRate) : 0;
+    const marginBottomRpx = marginBottomPx !== 0 ? pxToRpx(marginBottomPx, conversionRate) : 0;
+    const marginLeftRpx = marginLeftPx !== 0 ? pxToRpx(marginLeftPx, conversionRate) : 0;
 
-    // 直接使用 rpx 值，不生成变量
-    const spacingVar = (px: number, rpx: number): string => {
+    // 检查每个方向是否绑定到变量
+    const marginTopVar = await getBoundVariableName(node, 'marginTop', enableVariables);
+    const marginRightVar = await getBoundVariableName(node, 'marginRight', enableVariables);
+    const marginBottomVar = await getBoundVariableName(node, 'marginBottom', enableVariables);
+    const marginLeftVar = await getBoundVariableName(node, 'marginLeft', enableVariables);
+
+    // 生成每个方向的值（带变量或rpx值）
+    const generateMarginValue = (px: number, rpx: number, varName: string | null): string => {
       if (px === 0) return '0';
+
+      if (varName) {
+        return `var(${varName}, ${rpx}rpx)`;
+      }
+
       return `${rpx}rpx`;
     };
 
-    if (marginTop === marginRight && marginTop === marginBottom && marginTop === marginLeft) {
+    const marginTopValue = generateMarginValue(marginTopPx, marginTopRpx, marginTopVar);
+    const marginRightValue = generateMarginValue(marginRightPx, marginRightRpx, marginRightVar);
+    const marginBottomValue = generateMarginValue(marginBottomPx, marginBottomRpx, marginBottomVar);
+    const marginLeftValue = generateMarginValue(marginLeftPx, marginLeftRpx, marginLeftVar);
+
+    // 检查是否所有值相同（以简化输出）
+    if (marginTopValue === marginRightValue && marginTopValue === marginBottomValue && marginTopValue === marginLeftValue) {
       // 四个方向相同，使用简写
-      styles.push(`margin: ${spacingVar(marginTopPx, marginTop)}`);
-    } else if (marginTop === marginBottom && marginLeft === marginRight) {
+      styles.push(`margin: ${marginTopValue}`);
+    } else if (marginTopValue === marginBottomValue && marginLeftValue === marginRightValue) {
       // 上下相同，左右相同
-      styles.push(`margin: ${spacingVar(marginTopPx, marginTop)} ${spacingVar(marginRightPx, marginRight)}`);
+      styles.push(`margin: ${marginTopValue} ${marginRightValue}`);
     } else {
       // 四个方向都不同
-      styles.push(`margin: ${spacingVar(marginTopPx, marginTop)} ${spacingVar(marginRightPx, marginRight)} ${spacingVar(marginBottomPx, marginBottom)} ${spacingVar(marginLeftPx, marginLeft)}`);
+      styles.push(`margin: ${marginTopValue} ${marginRightValue} ${marginBottomValue} ${marginLeftValue}`);
     }
   }
 
@@ -420,17 +625,17 @@ async function generateWechatMiniProgramCode(node: SceneNode, conversionRate: nu
   }
 
   if (hasPadding) {
-    // 直接使用 rpx 值，不生成变量
-    const spacingVar = (px: number, rpx: number): string => {
-      if (px === 0) return '0';
-      return `${rpx}rpx`;
-    };
-
-    // 处理统一的 padding
+    // 处理统一的 padding（简写属性）
     if ('padding' in node && typeof (node as any).padding === 'number' && (node as any).padding > 0) {
       const paddingPx = (node as any).padding;
       const paddingRpx = pxToRpx(paddingPx, conversionRate);
-      styles.push(`padding: ${spacingVar(paddingPx, paddingRpx)}`);
+      const paddingVar = await getBoundVariableName(node, 'padding', enableVariables);
+
+      const paddingValue = paddingVar
+        ? `var(${paddingVar}, ${paddingRpx}rpx)`
+        : `${paddingRpx}rpx`;
+
+      styles.push(`padding: ${paddingValue}`);
     } else {
       // 分别处理四个方向的 padding
       const paddingTopPx = 'paddingTop' in node && typeof (node as any).paddingTop === 'number' ? (node as any).paddingTop : 0;
@@ -439,43 +644,310 @@ async function generateWechatMiniProgramCode(node: SceneNode, conversionRate: nu
       const paddingLeftPx = 'paddingLeft' in node && typeof (node as any).paddingLeft === 'number' ? (node as any).paddingLeft : 0;
 
       // 转换为rpx
-      const paddingTop = paddingTopPx !== 0 ? pxToRpx(paddingTopPx, conversionRate) : 0;
-      const paddingRight = paddingRightPx !== 0 ? pxToRpx(paddingRightPx, conversionRate) : 0;
-      const paddingBottom = paddingBottomPx !== 0 ? pxToRpx(paddingBottomPx, conversionRate) : 0;
-      const paddingLeft = paddingLeftPx !== 0 ? pxToRpx(paddingLeftPx, conversionRate) : 0;
+      const paddingTopRpx = paddingTopPx !== 0 ? pxToRpx(paddingTopPx, conversionRate) : 0;
+      const paddingRightRpx = paddingRightPx !== 0 ? pxToRpx(paddingRightPx, conversionRate) : 0;
+      const paddingBottomRpx = paddingBottomPx !== 0 ? pxToRpx(paddingBottomPx, conversionRate) : 0;
+      const paddingLeftRpx = paddingLeftPx !== 0 ? pxToRpx(paddingLeftPx, conversionRate) : 0;
 
-      if (paddingTop === paddingRight && paddingTop === paddingBottom && paddingTop === paddingLeft) {
+      // 检查每个方向是否绑定到变量
+      const paddingTopVar = await getBoundVariableName(node, 'paddingTop', enableVariables);
+      const paddingRightVar = await getBoundVariableName(node, 'paddingRight', enableVariables);
+      const paddingBottomVar = await getBoundVariableName(node, 'paddingBottom', enableVariables);
+      const paddingLeftVar = await getBoundVariableName(node, 'paddingLeft', enableVariables);
+
+      // 生成每个方向的值（带变量或rpx值）
+      const generatePaddingValue = (px: number, rpx: number, varName: string | null): string => {
+        if (px === 0) return '0';
+
+        if (varName) {
+          return `var(${varName}, ${rpx}rpx)`;
+        }
+
+        return `${rpx}rpx`;
+      };
+
+      const paddingTopValue = generatePaddingValue(paddingTopPx, paddingTopRpx, paddingTopVar);
+      const paddingRightValue = generatePaddingValue(paddingRightPx, paddingRightRpx, paddingRightVar);
+      const paddingBottomValue = generatePaddingValue(paddingBottomPx, paddingBottomRpx, paddingBottomVar);
+      const paddingLeftValue = generatePaddingValue(paddingLeftPx, paddingLeftRpx, paddingLeftVar);
+
+      // 检查是否所有值相同（以简化输出）
+      if (paddingTopValue === paddingRightValue && paddingTopValue === paddingBottomValue && paddingTopValue === paddingLeftValue) {
         // 四个方向相同，使用简写
-        styles.push(`padding: ${spacingVar(paddingTopPx, paddingTop)}`);
-      } else if (paddingTop === paddingBottom && paddingLeft === paddingRight) {
+        styles.push(`padding: ${paddingTopValue}`);
+      } else if (paddingTopValue === paddingBottomValue && paddingLeftValue === paddingRightValue) {
         // 上下相同，左右相同
-        styles.push(`padding: ${spacingVar(paddingTopPx, paddingTop)} ${spacingVar(paddingRightPx, paddingRight)}`);
+        styles.push(`padding: ${paddingTopValue} ${paddingRightValue}`);
       } else {
         // 四个方向都不同
-        styles.push(`padding: ${spacingVar(paddingTopPx, paddingTop)} ${spacingVar(paddingRightPx, paddingRight)} ${spacingVar(paddingBottomPx, paddingBottom)} ${spacingVar(paddingLeftPx, paddingLeft)}`);
+        styles.push(`padding: ${paddingTopValue} ${paddingRightValue} ${paddingBottomValue} ${paddingLeftValue}`);
       }
     }
   }
 
-  // 处理圆角
+  // 处理布局属性（Auto Layout）
+  if ('layoutMode' in node && (node as any).layoutMode !== 'NONE') {
+    const layoutMode = (node as any).layoutMode;
+
+    // 设置 display: flex
+    styles.push('display: flex');
+
+    // 设置 flex-direction
+    if (layoutMode === 'HORIZONTAL') {
+      styles.push('flex-direction: row');
+    } else if (layoutMode === 'VERTICAL') {
+      styles.push('flex-direction: column');
+    }
+
+    // 处理主轴对齐（justify-content）
+    if ('primaryAxisAlignItems' in node) {
+      const alignment = (node as any).primaryAxisAlignItems;
+      let justifyContent = '';
+
+      switch (alignment) {
+        case 'MIN':
+          justifyContent = layoutMode === 'HORIZONTAL' ? 'flex-start' : 'flex-start';
+          break;
+        case 'CENTER':
+          justifyContent = 'center';
+          break;
+        case 'MAX':
+          justifyContent = layoutMode === 'HORIZONTAL' ? 'flex-end' : 'flex-end';
+          break;
+        case 'SPACE_BETWEEN':
+          justifyContent = 'space-between';
+          break;
+      }
+
+      if (justifyContent) {
+        styles.push(`justify-content: ${justifyContent}`);
+      }
+    }
+
+    // 处理交叉轴对齐（align-items）
+    if ('counterAxisAlignItems' in node) {
+      const alignment = (node as any).counterAxisAlignItems;
+      let alignItems = '';
+
+      switch (alignment) {
+        case 'MIN':
+          alignItems = layoutMode === 'HORIZONTAL' ? 'flex-start' : 'flex-start';
+          break;
+        case 'CENTER':
+          alignItems = 'center';
+          break;
+        case 'MAX':
+          alignItems = layoutMode === 'HORIZONTAL' ? 'flex-end' : 'flex-end';
+          break;
+        case 'BASELINE':
+          alignItems = 'baseline';
+          break;
+      }
+
+      if (alignItems) {
+        styles.push(`align-items: ${alignItems}`);
+      }
+    }
+
+    // 处理间距（gap）
+    const hasItemSpacing = 'itemSpacing' in node && typeof (node as any).itemSpacing === 'number' && (node as any).itemSpacing > 0;
+    const hasCounterAxisSpacing = 'counterAxisSpacing' in node && typeof (node as any).counterAxisSpacing === 'number' && (node as any).counterAxisSpacing > 0;
+
+    if (hasItemSpacing || hasCounterAxisSpacing) {
+      // 获取主轴间距
+      let rowGapValue = '0';
+      let columnGapValue = '0';
+
+      if (hasItemSpacing) {
+        const itemSpacingPx = (node as any).itemSpacing;
+        const itemSpacingRpx = pxToRpx(itemSpacingPx, conversionRate);
+        const itemSpacingVar = await getBoundVariableName(node, 'itemSpacing', enableVariables);
+
+        rowGapValue = itemSpacingVar
+          ? `var(${itemSpacingVar}, ${itemSpacingRpx}rpx)`
+          : `${itemSpacingRpx}rpx`;
+      }
+
+      if (hasCounterAxisSpacing) {
+        const counterAxisSpacingPx = (node as any).counterAxisSpacing;
+        const counterAxisSpacingRpx = pxToRpx(counterAxisSpacingPx, conversionRate);
+        const counterAxisSpacingVar = await getBoundVariableName(node, 'counterAxisSpacing', enableVariables);
+
+        columnGapValue = counterAxisSpacingVar
+          ? `var(${counterAxisSpacingVar}, ${counterAxisSpacingRpx}rpx)`
+          : `${counterAxisSpacingRpx}rpx`;
+      }
+
+      // 确定gap值
+      if (hasItemSpacing && hasCounterAxisSpacing) {
+        // 如果两个间距都存在且不同，使用 gap: <row> <column>
+        if (rowGapValue !== columnGapValue) {
+          styles.push(`gap: ${rowGapValue} ${columnGapValue}`);
+        } else {
+          // 如果相同，使用单个值
+          styles.push(`gap: ${rowGapValue}`);
+        }
+      } else if (hasItemSpacing) {
+        // 只有主轴间距
+        styles.push(`gap: ${rowGapValue}`);
+      } else if (hasCounterAxisSpacing) {
+        // 只有交叉轴间距
+        styles.push(`gap: ${columnGapValue}`);
+      }
+    }
+  }
+
+  // 处理圆角 - 修复变量不生效问题
   if ('cornerRadius' in node && node.cornerRadius !== undefined) {
     const cornerRadius = node.cornerRadius;
+
+    // 检查统一圆角变量绑定（cornerRadius属性可能绑定变量）
+    const cornerRadiusVar = await getBoundVariableName(node, 'cornerRadius', enableVariables);
 
     // 检查是否是数字（统一圆角）
     if (typeof cornerRadius === 'number') {
       const borderRadiusRpx = pxToRpx(cornerRadius, conversionRate);
-      styles.push(`border-radius: ${borderRadiusRpx}rpx`);
+
+      // 对于数字类型圆角，也需要检查四个角的变量绑定
+      const topLeftRadiusVar = await getBoundVariableName(node, 'topLeftRadius', enableVariables);
+      const topRightRadiusVar = await getBoundVariableName(node, 'topRightRadius', enableVariables);
+      const bottomRightRadiusVar = await getBoundVariableName(node, 'bottomRightRadius', enableVariables);
+      const bottomLeftRadiusVar = await getBoundVariableName(node, 'bottomLeftRadius', enableVariables);
+
+      // 关键调试信息：数字类型圆角的变量绑定检查
+      if (DEBUG_MODE) {
+        console.log('数字类型圆角变量绑定检查:', {
+          cornerRadiusVar,
+          topLeftRadiusVar,
+          topRightRadiusVar,
+          bottomRightRadiusVar,
+          bottomLeftRadiusVar
+        });
+        console.log('统一圆角像素值:', cornerRadius);
+        console.log('统一圆角rpx值:', borderRadiusRpx);
+      }
+
+      // 分析四个角的变量绑定情况
+      const allVars = [topLeftRadiusVar, topRightRadiusVar, bottomRightRadiusVar, bottomLeftRadiusVar];
+      const nonNullVars = allVars.filter(v => v);
+      const uniqueVars = nonNullVars.filter((v, i, arr) => arr.indexOf(v) === i);
+
+      // 情况1: 存在统一圆角变量（cornerRadiusVar） - 优先使用
+      if (cornerRadiusVar) {
+        styles.push(`border-radius: var(${cornerRadiusVar}, ${borderRadiusRpx}rpx)`);
+      }
+      // 情况2: 四个角都绑定了变量（任意数量）
+      else if (nonNullVars.length > 0) {
+        // 数字类型圆角意味着四个角值相同，使用第一个变量作为统一圆角变量
+        const firstVar = nonNullVars[0];
+        styles.push(`border-radius: var(${firstVar}, ${borderRadiusRpx}rpx)`);
+      }
+      // 情况3: 没有变量绑定
+      else {
+        styles.push(`border-radius: ${borderRadiusRpx}rpx`);
+      }
     }
     // 检查是否是圆角对象（分别设置四个角）
     else if (cornerRadius !== null && typeof cornerRadius === 'object') {
-      // 安全地访问属性，使用类型断言
       const cornerRadiusObj = cornerRadius as any;
       if ('topLeft' in cornerRadiusObj && typeof cornerRadiusObj.topLeft === 'number') {
-        const topLeft = pxToRpx(cornerRadiusObj.topLeft, conversionRate);
-        const topRight = pxToRpx(cornerRadiusObj.topRight || 0, conversionRate);
-        const bottomRight = pxToRpx(cornerRadiusObj.bottomRight || 0, conversionRate);
-        const bottomLeft = pxToRpx(cornerRadiusObj.bottomLeft || 0, conversionRate);
-        styles.push(`border-radius: ${topLeft}rpx ${topRight}rpx ${bottomRight}rpx ${bottomLeft}rpx`);
+        // 获取原始像素值
+        const topLeftPx = cornerRadiusObj.topLeft;
+        const topRightPx = cornerRadiusObj.topRight || 0;
+        const bottomRightPx = cornerRadiusObj.bottomRight || 0;
+        const bottomLeftPx = cornerRadiusObj.bottomLeft || 0;
+
+        // 转换为rpx值
+        const topLeftRpx = pxToRpx(topLeftPx, conversionRate);
+        const topRightRpx = pxToRpx(topRightPx, conversionRate);
+        const bottomRightRpx = pxToRpx(bottomRightPx, conversionRate);
+        const bottomLeftRpx = pxToRpx(bottomLeftPx, conversionRate);
+
+        // 检查四个角的单独变量绑定
+        const topLeftRadiusVar = await getBoundVariableName(node, 'topLeftRadius', enableVariables);
+        const topRightRadiusVar = await getBoundVariableName(node, 'topRightRadius', enableVariables);
+        const bottomRightRadiusVar = await getBoundVariableName(node, 'bottomRightRadius', enableVariables);
+        const bottomLeftRadiusVar = await getBoundVariableName(node, 'bottomLeftRadius', enableVariables);
+
+        // 关键调试信息：圆角变量绑定状态
+        if (DEBUG_MODE) {
+          console.log('圆角变量绑定检查:', {
+            cornerRadiusVar,
+            topLeftRadiusVar,
+            topRightRadiusVar,
+            bottomRightRadiusVar,
+            bottomLeftRadiusVar
+          });
+          console.log('四个角像素值:', {topLeftPx, topRightPx, bottomRightPx, bottomLeftPx});
+          console.log('四个角rpx值:', {topLeftRpx, topRightRpx, bottomRightRpx, bottomLeftRpx});
+        }
+
+        // 检查四个角的值是否完全相同
+        const allValuesSame = topLeftPx === topRightPx &&
+                            topLeftPx === bottomRightPx &&
+                            topLeftPx === bottomLeftPx;
+
+        if (DEBUG_MODE) {
+          console.log('四个角值是否相同:', allValuesSame);
+        }
+
+        // 分析四个角的变量绑定情况
+        const allVars = [topLeftRadiusVar, topRightRadiusVar, bottomRightRadiusVar, bottomLeftRadiusVar];
+        const nonNullVars = allVars.filter(v => v);
+        const uniqueVars = nonNullVars.filter((v, i, arr) => arr.indexOf(v) === i);
+
+        // 情况1: 存在统一圆角变量（cornerRadiusVar） - 优先使用
+        if (cornerRadiusVar) {
+          styles.push(`border-radius: var(${cornerRadiusVar}, ${topLeftRpx}rpx)`);
+        }
+        // 情况2: 四个角都绑定了变量（任意数量）
+        else if (nonNullVars.length > 0) {
+          // 如果四个角值相同，使用第一个变量作为统一圆角变量
+          if (allValuesSame) {
+            const firstVar = nonNullVars[0];
+            styles.push(`border-radius: var(${firstVar}, ${topLeftRpx}rpx)`);
+          }
+          // 如果四个角都绑定了同一个变量（全部绑定且变量相同）
+          else if (nonNullVars.length === 4 && uniqueVars.length === 1) {
+            const commonVar = uniqueVars[0];
+            styles.push(`border-radius: var(${commonVar}, ${topLeftRpx}rpx) var(${commonVar}, ${topRightRpx}rpx) var(${commonVar}, ${bottomRightRpx}rpx) var(${commonVar}, ${bottomLeftRpx}rpx)`);
+          }
+          // 情况3: 部分角绑定了变量，或变量不同
+          else {
+            // 分别生成单独属性
+            if (topLeftRadiusVar) {
+              styles.push(`border-top-left-radius: var(${topLeftRadiusVar}, ${topLeftRpx}rpx)`);
+            } else if (topLeftPx !== 0) {
+              styles.push(`border-top-left-radius: ${topLeftRpx}rpx`);
+            }
+
+            if (topRightRadiusVar) {
+              styles.push(`border-top-right-radius: var(${topRightRadiusVar}, ${topRightRpx}rpx)`);
+            } else if (topRightPx !== 0) {
+              styles.push(`border-top-right-radius: ${topRightRpx}rpx`);
+            }
+
+            if (bottomRightRadiusVar) {
+              styles.push(`border-bottom-right-radius: var(${bottomRightRadiusVar}, ${bottomRightRpx}rpx)`);
+            } else if (bottomRightPx !== 0) {
+              styles.push(`border-bottom-right-radius: ${bottomRightRpx}rpx`);
+            }
+
+            if (bottomLeftRadiusVar) {
+              styles.push(`border-bottom-left-radius: var(${bottomLeftRadiusVar}, ${bottomLeftRpx}rpx)`);
+            } else if (bottomLeftPx !== 0) {
+              styles.push(`border-bottom-left-radius: ${bottomLeftRpx}rpx`);
+            }
+          }
+        }
+        // 情况4: 没有变量绑定
+        else {
+          if (allValuesSame) {
+            styles.push(`border-radius: ${topLeftRpx}rpx`);
+          } else {
+            styles.push(`border-radius: ${topLeftRpx}rpx ${topRightRpx}rpx ${bottomRightRpx}rpx ${bottomLeftRpx}rpx`);
+          }
+        }
       }
     }
   }
@@ -498,9 +970,9 @@ async function generateWechatMiniProgramCode(node: SceneNode, conversionRate: nu
       styles.push(`/* 文本样式 ${identifier} */`);
       commentAdded = true;
 
-      if (DEBUG_MODE) {
-        console.log(`为文本样式生成备选注释: ID="${textStyleId}" -> "文本样式 ${identifier}"`);
-      }
+      // if (DEBUG_MODE) {
+      //   console.log(`为文本样式生成备选注释: ID="${textStyleId}" -> "文本样式 ${identifier}"`);
+      // }
     }
   }
 
@@ -522,7 +994,7 @@ async function generateWechatMiniProgramCode(node: SceneNode, conversionRate: nu
         if (isColorVisible(visibleFill.color)) {
           // 对于颜色样式，文本节点使用fillStyleId（颜色样式），非文本节点也使用fillStyleId
           const styleId = fillStyleId;
-          const color = await generateColorWithStyleVariable(visibleFill.color, styleId, isTextNode, enableTextVariables);
+          const color = await generateColorWithStyleVariable(visibleFill.color, styleId, isTextNode, enableVariables);
           // 如果是文本节点，生成文本颜色；否则生成背景颜色
           if (isTextNode) {
             styles.push(`color: ${color}`);
@@ -545,13 +1017,13 @@ async function generateWechatMiniProgramCode(node: SceneNode, conversionRate: nu
             const firstStop = visibleFill.gradientStops[0];
             if (firstStop.color && isColorVisible(firstStop.color)) {
               const styleId = fillStyleId;
-              const color = await generateColorWithStyleVariable(firstStop.color, styleId, isTextNode, enableTextVariables);
+              const color = await generateColorWithStyleVariable(firstStop.color, styleId, isTextNode, enableVariables);
               styles.push(`color: ${color}`);
             }
           } else {
             // 非文本节点，生成渐变背景
             const styleId = fillStyleId;
-            const gradientWithVar = await generateGradientWithStyleVariable(gradientCss, styleId, enableTextVariables);
+            const gradientWithVar = await generateGradientWithStyleVariable(gradientCss, styleId, enableVariables);
             styles.push(`background-image: ${gradientWithVar}`);
           }
         }
@@ -577,7 +1049,7 @@ async function generateWechatMiniProgramCode(node: SceneNode, conversionRate: nu
       // 检查颜色是否可见（透明度 > 0）
       if (isColorVisible(stroke.color)) {
         hasVisibleStroke = true;
-        strokeColor = await generateColorWithStyleVariable(stroke.color, strokeStyleId, false, enableTextVariables);
+        strokeColor = await generateColorWithStyleVariable(stroke.color, strokeStyleId, false, enableVariables);
       }
     }
   }
@@ -586,7 +1058,11 @@ async function generateWechatMiniProgramCode(node: SceneNode, conversionRate: nu
   if (hasBorderWeight && hasVisibleStroke) {
     const strokeWeight = node.strokeWeight as number;
     const borderWidthRpx = pxToRpx(strokeWeight, conversionRate);
-    styles.push(`border-width: ${borderWidthRpx}rpx`);
+    const borderWidthVar = await getBoundVariableName(node, 'strokeWeight', enableVariables);
+    const borderWidthValue = borderWidthVar
+      ? `var(${borderWidthVar}, ${borderWidthRpx}rpx)`
+      : `${borderWidthRpx}rpx`;
+    styles.push(`border-width: ${borderWidthValue}`);
     styles.push(`border-style: solid`);
     styles.push(`border-color: ${strokeColor}`);
   }
@@ -625,8 +1101,15 @@ async function generateWechatMiniProgramCode(node: SceneNode, conversionRate: nu
       const fontSizeRpx = pxToRpx(fontSizePx, conversionRate);
       const fallbackValue = `${fontSizeRpx}rpx`;
       let value = fallbackValue;
-      if (enableTextVariables && textStyleId) {
-        value = await generateTextPropertyWithStyleVariable('font-size', fallbackValue, textStyleId);
+      if (enableVariables) {
+        // 首先检查直接变量绑定
+        const fontSizeVar = await getBoundVariableName(node, 'fontSize', enableVariables);
+        if (fontSizeVar) {
+          value = `var(${fontSizeVar}, ${fallbackValue})`;
+        } else if (textStyleId) {
+          // 如果没有直接变量绑定，但存在文本样式ID，使用文本样式变量
+          value = await generateTextPropertyWithStyleVariable('font-size', fallbackValue, textStyleId);
+        }
       }
       styles.push(`font-size: ${value}`);
     }
@@ -639,8 +1122,15 @@ async function generateWechatMiniProgramCode(node: SceneNode, conversionRate: nu
       if (weight === 700) fontWeight = 'bold';
       const fallbackValue = fontWeight;
       let value = fallbackValue;
-      if (enableTextVariables && textStyleId) {
-        value = await generateTextPropertyWithStyleVariable('font-weight', fallbackValue, textStyleId);
+      if (enableVariables) {
+        // 首先检查直接变量绑定
+        const fontWeightVar = await getBoundVariableName(node, 'fontWeight', enableVariables);
+        if (fontWeightVar) {
+          value = `var(${fontWeightVar}, ${fallbackValue})`;
+        } else if (textStyleId) {
+          // 如果没有直接变量绑定，但存在文本样式ID，使用文本样式变量
+          value = await generateTextPropertyWithStyleVariable('font-weight', fallbackValue, textStyleId);
+        }
       }
       styles.push(`font-weight: ${value}`);
     }
@@ -659,8 +1149,15 @@ async function generateWechatMiniProgramCode(node: SceneNode, conversionRate: nu
     if (fontFamily) {
       const fallbackValue = `"${fontFamily}"`;
       let value = fallbackValue;
-      if (enableTextVariables && textStyleId) {
-        value = await generateTextPropertyWithStyleVariable('font-family', fallbackValue, textStyleId);
+      if (enableVariables) {
+        // 首先检查直接变量绑定
+        const fontFamilyVar = await getBoundVariableName(node, 'fontFamily', enableVariables);
+        if (fontFamilyVar) {
+          value = `var(${fontFamilyVar}, ${fallbackValue})`;
+        } else if (textStyleId) {
+          // 如果没有直接变量绑定，但存在文本样式ID，使用文本样式变量
+          value = await generateTextPropertyWithStyleVariable('font-family', fallbackValue, textStyleId);
+        }
       }
       styles.push(`font-family: ${value}`);
     }
@@ -682,8 +1179,15 @@ async function generateWechatMiniProgramCode(node: SceneNode, conversionRate: nu
       }
       if (fallbackValue) {
         let value = fallbackValue;
-        if (enableTextVariables && textStyleId) {
-          value = await generateTextPropertyWithStyleVariable('line-height', fallbackValue, textStyleId);
+        if (enableVariables) {
+          // 首先检查直接变量绑定
+          const lineHeightVar = await getBoundVariableName(node, 'lineHeight', enableVariables);
+          if (lineHeightVar) {
+            value = `var(${lineHeightVar}, ${fallbackValue})`;
+          } else if (textStyleId) {
+            // 如果没有直接变量绑定，但存在文本样式ID，使用文本样式变量
+            value = await generateTextPropertyWithStyleVariable('line-height', fallbackValue, textStyleId);
+          }
         }
         styles.push(`line-height: ${value}`);
       }
@@ -705,7 +1209,17 @@ async function generateWechatMiniProgramCode(node: SceneNode, conversionRate: nu
         }
       }
       if (fallbackValue) {
-        const value = fallbackValue; // 字间距直接输出值，不生成变量
+        let value = fallbackValue;
+        if (enableVariables) {
+          // 检查直接变量绑定
+          const letterSpacingVar = await getBoundVariableName(node, 'letterSpacing', enableVariables);
+          if (letterSpacingVar) {
+            value = `var(${letterSpacingVar}, ${fallbackValue})`;
+          } else if (textStyleId) {
+            // 如果没有直接变量绑定，但存在文本样式ID，使用文本样式变量
+            value = await generateTextPropertyWithStyleVariable('letter-spacing', fallbackValue, textStyleId);
+          }
+        }
         styles.push(`letter-spacing: ${value}`);
       }
     }
@@ -747,7 +1261,12 @@ async function generateWechatMiniProgramCode(node: SceneNode, conversionRate: nu
 
   // 处理透明度
   if ('opacity' in node && typeof node.opacity === 'number') {
-    styles.push(`opacity: ${node.opacity}`);
+    const opacityValue = node.opacity;
+    const opacityVar = await getBoundVariableName(node, 'opacity', enableVariables);
+    const opacityStyle = opacityVar
+      ? `var(${opacityVar}, ${opacityValue})`
+      : `${opacityValue}`;
+    styles.push(`opacity: ${opacityStyle}`);
   }
 
   // 将样式数组连接为字符串，每行一个样式
@@ -850,8 +1369,8 @@ const DEFAULT_CONVERSION_RATE = 2;
 // 当前转换倍率
 let currentConversionRate = DEFAULT_CONVERSION_RATE;
 
-// 是否启用文本变量（默认关闭）
-let enableTextVariables = false;
+// 是否启用变量（包括文本变量、间距变量、圆角变量等，默认关闭）
+let enableVariables = false;
 
 // 加载保存的设置
 async function loadSettings() {
@@ -861,9 +1380,9 @@ async function loadSettings() {
       currentConversionRate = savedRate;
     }
 
-    const savedEnableTextVariables = await figma.clientStorage.getAsync('enableTextVariables');
-    if (savedEnableTextVariables !== undefined) {
-      enableTextVariables = savedEnableTextVariables;
+    const savedEnableVariables = await figma.clientStorage.getAsync('enableVariables');
+    if (savedEnableVariables !== undefined) {
+      enableVariables = savedEnableVariables;
     }
   } catch (error) {
     console.error('加载设置失败:', error);
@@ -871,12 +1390,12 @@ async function loadSettings() {
 }
 
 // 保存设置
-async function saveSettings(rate: number, enableTextVariablesSetting: boolean) {
+async function saveSettings(rate: number, enableVariablesSetting: boolean) {
   try {
     await figma.clientStorage.setAsync('conversionRate', rate);
-    await figma.clientStorage.setAsync('enableTextVariables', enableTextVariablesSetting);
+    await figma.clientStorage.setAsync('enableVariables', enableVariablesSetting);
     currentConversionRate = rate;
-    enableTextVariables = enableTextVariablesSetting;
+    enableVariables = enableVariablesSetting;
     return true;
   } catch (error) {
     console.error('保存设置失败:', error);
@@ -899,13 +1418,13 @@ figma.on('run', ({ command }) => {
       if (msg.type === 'saveSettings') {
         const success = await saveSettings(
           msg.conversionRate,
-          msg.enableTextVariables !== undefined ? msg.enableTextVariables : false
+          msg.enableVariables !== undefined ? msg.enableVariables : false
         );
         if (success) {
           figma.ui.postMessage({
             type: 'settingsSaved',
             conversionRate: msg.conversionRate,
-            enableTextVariables: msg.enableTextVariables
+            enableVariables: msg.enableVariables
           });
         }
       } else if (msg.type === 'loadSettings') {
@@ -913,7 +1432,7 @@ figma.on('run', ({ command }) => {
         figma.ui.postMessage({
           type: 'settingsLoaded',
           conversionRate: currentConversionRate,
-          enableTextVariables: enableTextVariables
+          enableVariables: enableVariables
         });
       }
     };
@@ -926,8 +1445,8 @@ figma.on('run', ({ command }) => {
 figma.codegen.on('generate', async (event) => {
   const node = event.node;
 
-  // 使用当前转换倍率和文本变量设置
-  const code = await generateWechatMiniProgramCode(node, currentConversionRate, enableTextVariables);
+  // 使用当前转换倍率和变量设置
+  const code = await generateWechatMiniProgramCode(node, currentConversionRate, enableVariables);
 
   return [
     {

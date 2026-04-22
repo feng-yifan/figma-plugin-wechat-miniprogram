@@ -313,17 +313,17 @@
 
       <div class="toggle-option">
         <div class="toggle-label">
-          <span class="toggle-text">启用文本变量</span>
-          <span class="toggle-description">开启时生成带变量的代码（如 --text-heading-1），关闭时输出固定值</span>
+          <span class="toggle-text">启用变量</span>
+          <span class="toggle-description">开启时生成带变量的代码（如 --text-heading-1, --space-3, --radius-3），关闭时输出固定值</span>
         </div>
         <label class="switch">
-          <input type="checkbox" id="enableTextVariables">
+          <input type="checkbox" id="enableVariables">
           <span class="slider round"></span>
         </label>
       </div>
 
       <div class="help-text">
-        变量功能会将文本样式属性（字体大小、粗细、行高、字族）转换为 CSS 变量，便于设计系统统一管理。
+        变量功能会将文本样式、间距、圆角等属性转换为 CSS 变量（如 --text-heading-1, --space-3, --radius-3），便于设计系统统一管理。
       </div>
     </div>
 
@@ -338,7 +338,7 @@
   <script>
     // 获取DOM元素
     const conversionRateInput = document.getElementById('conversionRate');
-    const enableTextVariablesToggle = document.getElementById('enableTextVariables');
+    const enableVariablesToggle = document.getElementById('enableVariables');
     const wechatNumber = document.getElementById('wechatNumber');
     const saveBtn = document.getElementById('saveBtn');
     const resetBtn = document.getElementById('resetBtn');
@@ -358,7 +358,7 @@
     // 保存设置
     function saveSettings() {
       const rate = parseFloat(conversionRateInput.value);
-      const enableTextVariables = enableTextVariablesToggle.checked;
+      const enableVariables = enableVariablesToggle.checked;
 
       if (isNaN(rate) || rate <= 0) {
         showMessage('请输入有效的转换倍率（大于0）', 'error');
@@ -370,7 +370,7 @@
         pluginMessage: {
           type: 'saveSettings',
           conversionRate: rate,
-          enableTextVariables: enableTextVariables
+          enableVariables: enableVariables
         }
       }, '*');
 
@@ -380,7 +380,7 @@
     // 恢复默认设置
     function resetSettings() {
       conversionRateInput.value = DEFAULT_RATE;
-      enableTextVariablesToggle.checked = false; // 默认关闭
+      enableVariablesToggle.checked = false; // 默认关闭
       updateAllDisplays();
 
       // 发送默认设置到插件
@@ -388,7 +388,7 @@
         pluginMessage: {
           type: 'saveSettings',
           conversionRate: DEFAULT_RATE,
-          enableTextVariables: false
+          enableVariables: false
         }
       }, '*');
 
@@ -420,10 +420,10 @@
 
       if (pluginMessage && pluginMessage.type === 'settingsLoaded') {
         const rate = pluginMessage.conversionRate || DEFAULT_RATE;
-        const enableTextVariables = pluginMessage.enableTextVariables !== undefined ? pluginMessage.enableTextVariables : false;
+        const enableVariables = pluginMessage.enableVariables !== undefined ? pluginMessage.enableVariables : false;
 
         conversionRateInput.value = rate;
-        enableTextVariablesToggle.checked = enableTextVariables;
+        enableVariablesToggle.checked = enableVariables;
         updateAllDisplays();
       }
     });
